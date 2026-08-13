@@ -4,7 +4,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/moveeeax/cpp-rapid-rest-template-frontend
+  repository: ghcr.io/cybercapybara/llm-guard-frontend
   tag: ""  # Defaults to chart appVersion
   pullPolicy: IfNotPresent
 
@@ -15,10 +15,10 @@ fullnameOverride: ""
 # ---------------------------------------------------------------
 # Backend the SPA's nginx proxies /api/* to. Keeping the API same-origin
 # behind the frontend means session cookies stay first-party. Point `service`
-# at the cpp-api Service name (its Helm fullname, e.g. "<release>-cpp-api").
+# at the llm-guard Service name (its Helm fullname, e.g. "<release>-llm-guard").
 # ---------------------------------------------------------------
 backend:
-  service: cpp-api
+  service: llm-guard
   port: 8080
 
 # ---------------------------------------------------------------

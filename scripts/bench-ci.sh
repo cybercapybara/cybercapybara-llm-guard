@@ -3,12 +3,12 @@
 # path (/healthz) and the DB path (/api/v1/jobs), plus three low-noise
 # footprint metrics. Emits the two JSON files github-action-benchmark reads.
 # Local dry run (needs wrk + jq + a built runtime image):
-#   docker build --target runtime -f docker/Dockerfile -t cpp-rapid-rest-template:bench .
+#   docker build --target runtime -f docker/Dockerfile -t llm-guard:bench .
 #   ./scripts/bench-ci.sh
 set -euo pipefail
 
 OUT_DIR="${OUT_DIR:-bench-out}"
-BENCH_IMAGE="${BENCH_IMAGE:-cpp-rapid-rest-template:bench}"
+BENCH_IMAGE="${BENCH_IMAGE:-llm-guard:bench}"
 APP_URL="${APP_URL:-http://localhost:8080}"
 mkdir -p "$OUT_DIR"
 
@@ -88,7 +88,7 @@ cold_ms=$((t1 - t0))
 
 # 4) Idle RSS after a short settle.
 sleep 5
-rss_mb=$(docker stats --no-stream --format '{{.MemUsage}}' cpp_api_app \
+rss_mb=$(docker stats --no-stream --format '{{.MemUsage}}' llm_guard_app \
     | awk -F'[ /]+' '{v=$1
         if (v ~ /GiB$/) { sub(/GiB$/, "", v); v *= 1024 }
         else if (v ~ /KiB$/) { sub(/KiB$/, "", v); v /= 1024 }

@@ -11,7 +11,7 @@
 # Arguments:
 #   project-name  Kebab-case project name (e.g. my-service)
 #   registry      Container registry (default: docker.io/library)
-#   domain        Your host/domain — replaces the author's `tarassov.me` in
+#   domain        Your host/domain — replaces the author's `example.com` in
 #                 badges, demo URLs and the SECURITY.md contact. Omit and it
 #                 falls back to the placeholder `example.com`.
 #
@@ -49,7 +49,7 @@ Usage: $0 [--dry-run] [--force] <project-name> [registry] [domain]
                   C++ app — auth, User/Role/Audit, jobs — is NOT a demo and is
                   kept. See REMOVING-THE-DEMO.md.
 
-  domain          Your host/domain — replaces the author's tarassov.me in
+  domain          Your host/domain — replaces the author's example.com in
                   badges / demo URLs / SECURITY.md (default: example.com).
 
 Example:
@@ -72,7 +72,7 @@ PROJECT_NAME="${ARGS[0]}"
 
 # Registry / namespace for the published images. Take it as the 2nd arg, OR —
 # so a forker can't silently inherit the template author's namespace (the
-# hardcoded ghcr.io/moveeeax/... in CI, compose, release.yml) — ASK for it interactively
+# hardcoded ghcr.io/cybercapybara/... in CI, compose, release.yml) — ASK for it interactively
 # when omitted. Falls back to the default only non-interactively (CI / dry-run).
 if [[ ${#ARGS[@]} -ge 2 ]]; then
     REGISTRY="${ARGS[1]}"
@@ -95,7 +95,7 @@ REGISTRY_ORG="${REGISTRY##*/}"
 # the fork's domain as the 3rd arg; otherwise neutralize to a placeholder that
 # obviously needs replacing (better an obviously-fake address than the author's
 # real one). The verification step at the end flags any survivor.
-AUTHOR_HOST="tarassov.me"
+AUTHOR_HOST="example.com"
 if [[ ${#ARGS[@]} -ge 3 ]]; then
     NEW_HOST="${ARGS[2]}"
 else
@@ -126,8 +126,8 @@ cd "$ROOT"
 # or would mangle the already-customised tree (different name). Stop and ask.
 if [[ -f project.env ]]; then
     EXISTING_NAME="$(awk -F= '/^PROJECT_NAME=/{print $2}' project.env | tr -d '[:space:]')"
-    # Default ships as PROJECT_NAME=cpp-api; treat that as "untouched template".
-    if [[ -n "$EXISTING_NAME" && "$EXISTING_NAME" != "cpp-api" && "$EXISTING_NAME" != "cpp-rapid-rest-template" ]]; then
+    # Default ships as PROJECT_NAME=llm-guard; treat that as "untouched template".
+    if [[ -n "$EXISTING_NAME" && "$EXISTING_NAME" != "llm-guard" && "$EXISTING_NAME" != "llm-guard" ]]; then
         if [[ "$EXISTING_NAME" == "$PROJECT_NAME" ]]; then
             echo "==> Project already initialised as '${EXISTING_NAME}' — nothing to do."
             exit 0
@@ -183,41 +183,41 @@ echo "==> Found ${#FILES[@]} files to process"
 
 declare -a PATTERNS=(
     # 1. Inconsistent helm image ref (if present)
-    "s|ghcr.io/moveeeax/cpp-rapid-rest-app|${REGISTRY}/${PROJECT_NAME}|g"
+    "s|ghcr.io/cybercapybara/llm-guard|${REGISTRY}/${PROJECT_NAME}|g"
     # 2. CI image name
-    "s|ghcr.io/moveeeax/cpp-rapid-rest-template|${REGISTRY}/${PROJECT_NAME}|g"
+    "s|ghcr.io/cybercapybara/llm-guard|${REGISTRY}/${PROJECT_NAME}|g"
     # 2b. GHCR builder-cache namespace (builder-cache.yml, Makefile GHCR default).
     #     Runs BEFORE the broad bare-owner rule (2a) below — otherwise 2a's
-    #     `moveeeax/` → placeholder rewrite would eat the owner inside a
-    #     `ghcr.io/moveeeax/…` URL first and leave this a no-op.
-    "s|ghcr.io/moveeeax|ghcr.io/${REGISTRY_ORG}|g"
+    #     `your-registry/your-project/` → placeholder rewrite would eat the owner inside a
+    #     `ghcr.io/cybercapybara/…` URL first and leave this a no-op.
+    "s|ghcr.io/cybercapybara|ghcr.io/${REGISTRY_ORG}|g"
     # 2a. Any other reference to the author's Docker Hub namespace (e.g. the
     #     `resert/…` prose in release.yml). Runs AFTER the specific image refs
     #     above so those rewrite to the fork's full ref first; this only mops up
     #     the bare owner so a fork can't inherit it.
-    "s|moveeeax/|your-registry/your-project/|g"
+    "s|your-registry/your-project/|your-registry/your-project/|g"
     # 3. Repo-level references
-    "s|cpp-rapid-rest-template|${PROJECT_NAME}|g"
+    "s|llm-guard|${PROJECT_NAME}|g"
     # 4. CMake project name, binary names, Dockerfile
-    "s|cpp_api_template|${PROJECT_SNAKE}|g"
+    "s|llm_guard|${PROJECT_SNAKE}|g"
     # 5. Bench service name
-    "s|cpp_api_bench|${PROJECT_SNAKE}_bench|g"
+    "s|llm_guard_bench|${PROJECT_SNAKE}_bench|g"
     # 6. OTel service name
-    "s|cpp_api_service|${PROJECT_SNAKE}_service|g"
+    "s|llm_guard_service|${PROJECT_SNAKE}_service|g"
     # 7. Worker OTel service name
-    "s|cpp_worker_service|${PROJECT_SNAKE}_worker_service|g"
+    "s|llm_guard_worker_service|${PROJECT_SNAKE}_worker_service|g"
     # 8. Helm maintainer team
-    "s|cpp-api-team|${PROJECT_NAME}-team|g"
+    "s|llm-guard-team|${PROJECT_NAME}-team|g"
     # 9. Helm worker chart name
-    "s|cpp-worker|${PROJECT_NAME}-worker|g"
+    "s|llm-guard-worker|${PROJECT_NAME}-worker|g"
     # 10. Helm chart, K8s, ingress
-    "s|cpp-api|${PROJECT_NAME}|g"
+    "s|llm-guard|${PROJECT_NAME}|g"
     # 11. Worker logger name
-    "s|cpp_worker|${PROJECT_SNAKE}_worker|g"
+    "s|llm_guard_worker|${PROJECT_SNAKE}_worker|g"
     # 12. Logger, containers, general snake_case
-    "s|cpp_api|${PROJECT_SNAKE}|g"
+    "s|llm_guard|${PROJECT_SNAKE}|g"
     # 13. Kafka client ID
-    "s|cpp_producer|${PROJECT_SNAKE}_producer|g"
+    "s|llm_guard_producer|${PROJECT_SNAKE}_producer|g"
     # 14. De-brand the author's host/domain (gitlab namespace in badge + runbook
     #     links, *.demo.<host> URLs, security@<host>). Runs last so it can't
     #     interfere with the project-name patterns above.
@@ -229,11 +229,11 @@ declare -a PATTERNS=(
     #     - public ingress IP (helm/cpp-env/values-demo.yaml)
     "s|46\\.225\\.37\\.165|YOUR_INGRESS_IP|g"
     #     - kube context (scripts/deploy-demo.sh)
-    "s|admin@talos-nbg1|YOUR_KUBE_CONTEXT|g"
+    "s|YOUR_KUBE_CONTEXT|YOUR_KUBE_CONTEXT|g"
     #     - demo admin password (README, deploy-demo.sh, helm/cpp-env/values.yaml)
-    "s|DemoAdmin-2026|change-me-demo-pass|g"
+    "s|change-me-demo-pass|change-me-demo-pass|g"
     #     - author's personal email, if it ever appears as a template default.
-    #       Pattern 14 has already turned tarassov.me into ${NEW_HOST}, so match
+    #       Pattern 14 has already turned example.com into ${NEW_HOST}, so match
     #       the post-rewrite form (michael@${NEW_HOST}) → you@${NEW_HOST}.
     "s|michael@${NEW_HOST//./\\.}|you@${NEW_HOST}|g"
 )
@@ -254,16 +254,16 @@ if [[ $DRY_RUN -eq 1 ]]; then
     echo ""
     echo "==> Files that would be touched (matches at least one pattern):"
     for f in "${FILES[@]}"; do
-        if grep -qE 'cpp-rapid-rest-template|cpp_api_template|cpp-api|cpp_api|cpp-worker|cpp_worker|cpp_producer|cpp_api_bench|cpp_api_service|cpp_worker_service|cpp-api-team|resert/|tarassov\.me|46\.225\.37\.165|admin@talos-nbg1|DemoAdmin-2026' "$f" 2>/dev/null; then
+        if grep -qE 'llm-guard|llm_guard|llm-guard|llm_guard|llm-guard-worker|llm_guard_worker|llm_guard_producer|llm_guard_bench|llm_guard_service|llm_guard_worker_service|llm-guard-team|resert/|tarassov\.me|46\.225\.37\.165|YOUR_KUBE_CONTEXT|change-me-demo-pass' "$f" 2>/dev/null; then
             echo "    $f"
         fi
     done
     echo ""
-    if [[ -d "helm/cpp-api" && "cpp-api" != "${PROJECT_NAME}" ]]; then
-        echo "==> Would rename helm/cpp-api -> helm/${PROJECT_NAME}"
+    if [[ -d "helm/llm-guard" && "llm-guard" != "${PROJECT_NAME}" ]]; then
+        echo "==> Would rename helm/llm-guard -> helm/${PROJECT_NAME}"
     fi
-    if [[ -d "helm/cpp-worker" && "cpp-worker" != "${PROJECT_NAME}-worker" ]]; then
-        echo "==> Would rename helm/cpp-worker -> helm/${PROJECT_NAME}-worker"
+    if [[ -d "helm/llm-guard-worker" && "llm-guard-worker" != "${PROJECT_NAME}-worker" ]]; then
+        echo "==> Would rename helm/llm-guard-worker -> helm/${PROJECT_NAME}-worker"
     fi
     echo "==> Would write project.env (PROJECT_NAME=${PROJECT_NAME}, REGISTRY=${REGISTRY}, GHCR_ORG=${REGISTRY_ORG})"
     if [[ $NO_DEMO -eq 1 ]]; then
@@ -286,14 +286,14 @@ done
 echo "==> Text replacements complete"
 
 # ── Rename Helm chart directories ───────────────────────────────
-if [[ -d "helm/cpp-api" && "cpp-api" != "${PROJECT_NAME}" ]]; then
-    mv "helm/cpp-api" "helm/${PROJECT_NAME}"
-    echo "==> Renamed helm/cpp-api -> helm/${PROJECT_NAME}"
+if [[ -d "helm/llm-guard" && "llm-guard" != "${PROJECT_NAME}" ]]; then
+    mv "helm/llm-guard" "helm/${PROJECT_NAME}"
+    echo "==> Renamed helm/llm-guard -> helm/${PROJECT_NAME}"
 fi
 
-if [[ -d "helm/cpp-worker" && "cpp-worker" != "${PROJECT_NAME}-worker" ]]; then
-    mv "helm/cpp-worker" "helm/${PROJECT_NAME}-worker"
-    echo "==> Renamed helm/cpp-worker -> helm/${PROJECT_NAME}-worker"
+if [[ -d "helm/llm-guard-worker" && "llm-guard-worker" != "${PROJECT_NAME}-worker" ]]; then
+    mv "helm/llm-guard-worker" "helm/${PROJECT_NAME}-worker"
+    echo "==> Renamed helm/llm-guard-worker -> helm/${PROJECT_NAME}-worker"
 fi
 
 # ── Update project.env ──────────────────────────────────────────
@@ -309,8 +309,8 @@ echo ""
 # ── Verify the rename took (instead of telling YOU to grep) ──────────────────
 # An INDEPENDENT, broad scan — deliberately NOT the same file set the
 # replacement used, so it also catches files that set might miss. Only the
-# UNAMBIGUOUS author/template tokens are flagged: bare "cpp-api"/"cpp_api" are
-# excluded so a fork named e.g. "cpp-api-gateway" doesn't trip it. Vendor /
+# UNAMBIGUOUS author/template tokens are flagged: bare "llm-guard"/"llm_guard" are
+# excluded so a fork named e.g. "llm-guard-gateway" doesn't trip it. Vendor /
 # build / generated dirs and this script itself (which necessarily contains the
 # tokens) are skipped. -I skips binaries (portable across GNU/BSD grep).
 # Strip the flask-base reference material (opt-in). It exists to teach the
@@ -351,7 +351,7 @@ if [[ $NO_DEMO -eq 1 ]]; then
 fi
 
 echo "==> Verifying rename completeness"
-LEFTOVER_RE='cpp-rapid-rest-template|cpp_api_template|cpp_api_bench|cpp_api_service|cpp_worker_service|cpp_producer|cpp-api-team|resert/|ghcr\.io/resert|tarassov\.me|46\.225\.37\.165|admin@talos-nbg1|DemoAdmin-2026|michael@tarassov\.me'
+LEFTOVER_RE='llm-guard|llm_guard|llm_guard_bench|llm_guard_service|llm_guard_worker_service|llm_guard_producer|llm-guard-team|resert/|ghcr\.io/resert|tarassov\.me|46\.225\.37\.165|YOUR_KUBE_CONTEXT|change-me-demo-pass|michael@tarassov\.me'
 leftovers="$(grep -rInE "$LEFTOVER_RE" . \
     --exclude="$(basename "$0")" \
     --exclude=.git \

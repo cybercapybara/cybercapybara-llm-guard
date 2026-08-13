@@ -6,7 +6,7 @@
   exactly like the running API. Off by default — values-demo.yaml enables it.
 */}}
 {{- if .Values.demoReset.enabled }}
-{{- $api := index .Values "cpp-api" -}}
+{{- $api := index .Values "llm-guard" -}}
 apiVersion: batch/v1
 kind: CronJob
 metadata:

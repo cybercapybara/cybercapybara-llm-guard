@@ -7,7 +7,7 @@ metadata:
 data:
   # Overrides the nginx.conf baked into the image. The image hardcodes
   # `proxy_pass http://app:8080` (the docker-compose service name), which does
-  # not resolve in Kubernetes — here the /api upstream points at the cpp-api
+  # not resolve in Kubernetes — here the /api upstream points at the llm-guard
   # Service so the SPA stays the single same-origin entry point (cookies remain
   # first-party). $-prefixed tokens are nginx variables, not Helm.
   default.conf: |

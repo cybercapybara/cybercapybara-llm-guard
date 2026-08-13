@@ -9,14 +9,14 @@
  "style": "dark",
  "tags": [
   "cpp-template",
-  "cpp-api"
+  "llm-guard"
  ],
  "time": {
   "from": "now-30m",
   "to": "now"
  },
- "title": "cpp-api",
- "uid": "cpp-api",
+ "title": "llm-guard",
+ "uid": "llm-guard",
  "version": 1,
  "templating": {
   "list": [
@@ -27,7 +27,7 @@
      "type": "prometheus",
      "uid": "prometheus"
     },
-    "query": "label_values(http_requests_total{job=\"cpp_api\"}, path)",
+    "query": "label_values(http_requests_total{job=\"llm_guard\"}, path)",
     "multi": true,
     "includeAll": true,
     "refresh": 2
@@ -60,7 +60,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (method, path) (rate(http_requests_total{job=\"cpp_api\", path=~\"$path\"}[1m]))",
+     "expr": "sum by (method, path) (rate(http_requests_total{job=\"llm_guard\", path=~\"$path\"}[1m]))",
      "legendFormat": "{{method}} {{path}}"
     }
    ]
@@ -90,7 +90,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (status) (rate(http_requests_total{job=\"cpp_api\", status=~\"4..|5..\"}[1m]))",
+     "expr": "sum by (status) (rate(http_requests_total{job=\"llm_guard\", status=~\"4..|5..\"}[1m]))",
      "legendFormat": "{{status}}"
     }
    ]
@@ -120,22 +120,22 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"cpp_api\"}[5m])))",
+     "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"llm_guard\"}[5m])))",
      "legendFormat": "p50"
     },
     {
      "refId": "B",
-     "expr": "histogram_quantile(0.90, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"cpp_api\"}[5m])))",
+     "expr": "histogram_quantile(0.90, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"llm_guard\"}[5m])))",
      "legendFormat": "p90"
     },
     {
      "refId": "C",
-     "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"cpp_api\"}[5m])))",
+     "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"llm_guard\"}[5m])))",
      "legendFormat": "p95"
     },
     {
      "refId": "D",
-     "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"cpp_api\"}[5m])))",
+     "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{job=\"llm_guard\"}[5m])))",
      "legendFormat": "p99"
     }
    ]
@@ -165,7 +165,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "histogram_quantile(0.95, sum by (le, path) (rate(http_request_duration_seconds_bucket{job=\"cpp_api\", path=~\"$path\"}[5m])))",
+     "expr": "histogram_quantile(0.95, sum by (le, path) (rate(http_request_duration_seconds_bucket{job=\"llm_guard\", path=~\"$path\"}[5m])))",
      "legendFormat": "{{path}}"
     }
    ]
@@ -192,7 +192,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(rate(http_requests_total{job=\"cpp_api\"}[1m]))",
+     "expr": "sum(rate(http_requests_total{job=\"llm_guard\"}[1m]))",
      "legendFormat": "req/s"
     }
    ]
@@ -219,7 +219,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum(rate(http_requests_total{job=\"cpp_api\", status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{job=\"cpp_api\"}[5m])), 1)",
+     "expr": "sum(rate(http_requests_total{job=\"llm_guard\", status=~\"5..\"}[5m])) / clamp_min(sum(rate(http_requests_total{job=\"llm_guard\"}[5m])), 1)",
      "legendFormat": "5xx ratio"
     }
    ]
@@ -246,7 +246,7 @@
    "targets": [
     {
      "refId": "A",
-     "expr": "sum by (op, pool) (rate(db_queries_total{job=\"cpp_api\"}[1m]))",
+     "expr": "sum by (op, pool) (rate(db_queries_total{job=\"llm_guard\"}[1m]))",
      "legendFormat": "{{op}} @ {{pool}}"
     }
    ]

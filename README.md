@@ -6,9 +6,9 @@ and start writing endpoints instead of reinventing auth, rate limiting, tracing,
 <!-- Live badges point at the canonical repo. init-project.sh rebrands both the
      project name AND the host (pass your domain as the 3rd arg) and then fails
      if any template/author token survived — so a fork won't ship these links. -->
-[![CI](https://github.com/moveeeax/cpp-rapid-rest-template/actions/workflows/ci.yml/badge.svg)](https://github.com/moveeeax/cpp-rapid-rest-template/actions/workflows/ci.yml)
-[![benchmarks](https://img.shields.io/badge/benchmarks-trend-blue)](https://moveeeax.github.io/cpp-rapid-rest-template/dev/bench/)
-[![release](https://img.shields.io/github/v/release/moveeeax/cpp-rapid-rest-template)](https://github.com/moveeeax/cpp-rapid-rest-template/releases)
+[![CI](https://github.com/your-registry/your-project/llm-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/your-registry/your-project/llm-guard/actions/workflows/ci.yml)
+[![benchmarks](https://img.shields.io/badge/benchmarks-trend-blue)](https://cybercapybara.github.io/llm-guard/dev/bench/)
+[![release](https://img.shields.io/github/v/release/your-registry/your-project/llm-guard)](https://github.com/your-registry/your-project/llm-guard/releases)
 ![C++20](https://img.shields.io/badge/C%2B%2B-20-blue.svg)
 ![Drogon](https://img.shields.io/badge/Drogon-HTTP%20Framework-green.svg)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791.svg)
@@ -20,21 +20,8 @@ and start writing endpoints instead of reinventing auth, rate limiting, tracing,
 to be forked as a base for real services; breaking changes follow SemVer. Issues
 and PRs welcome (see [CONTRIBUTING.md](CONTRIBUTING.md)).
 
-<!-- init-project:live-demo:start (scripts/init-project.sh --no-demo strips this block) -->
-## Live demo
-
-A throwaway public demo runs at **[app.demo.tarassov.me](https://app.demo.tarassov.me)** —
-register your own account, or sign in as **`admin@demo.tarassov.me`** /
-**`DemoAdmin-2026`** to explore the admin, RBAC, and audit features. Outgoing mail
-lands in a public [Mailpit inbox](https://mail.demo.tarassov.me) and requests are
-traced in [Jaeger](https://jaeger.demo.tarassov.me). It holds no real data and is
-reset periodically. Stood up with [`scripts/deploy-demo.sh`](scripts/deploy-demo.sh)
-(`helm/cpp-env/values-demo.yaml`).
-
-<!-- init-project:live-demo:end -->
 ## Contents
 
-- [Live demo](#live-demo) <!-- init-project:live-demo:toc -->
 - [Why this template](#why-this-template)
 - [What's in the box](#whats-in-the-box)
 - [Quick start](#quick-start)
@@ -203,7 +190,7 @@ dependency layer (falls back to the upstream template cache) so the first build
 is minutes, not ~30.
 
 ```bash
-git clone https://github.com/moveeeax/cpp-rapid-rest-template.git my-service
+git clone https://github.com/your-registry/your-project/llm-guard.git my-service
 cd my-service
 
 make doctor        # verify Docker + VM memory before the first (cold) build
@@ -243,7 +230,7 @@ make up-everything       # app, postgres, redis, mailpit, worker, replica, senti
 
 # create the first admin (migrations ran automatically on app startup)
 docker compose -f docker/docker-compose.yml exec app \
-    ./cpp_api_template --create-admin admin@local password
+    ./llm_guard --create-admin admin@local password
 
 # open http://localhost:3001  — SPA, log in as admin@local / password
 # open http://localhost:8025  — Mailpit (confirm / reset links land here)
@@ -286,7 +273,7 @@ Typical order:
    stack restart, Postgres volume stays put).
 5. **`make test-quick`** — the fast TDD loop; runs against the cached
    test-runner image in ~5 s instead of the ~2 min cold rebuild of `make test`.
-6. **Verify migrations didn't drift** — `docker compose exec app ./cpp_api_template --verify-migrations` exits
+6. **Verify migrations didn't drift** — `docker compose exec app ./llm_guard --verify-migrations` exits
    non-zero if anything is pending.
 7. **Background work** — `./scripts/new-job.sh reindex` (or
    `make new-job TYPE=reindex`) scaffolds a self-registering job handler under
@@ -424,8 +411,8 @@ The app emits `OTLP_ENDPOINT`-tuned OTLP HTTP to whatever you configure; default
 
 Four charts:
 
-- `helm/cpp-api` — the HTTP service
-- `helm/cpp-worker` — the background-job worker
+- `helm/llm-guard` — the HTTP service
+- `helm/llm-guard-worker` — the background-job worker
 - `helm/cpp-frontend` — the React SPA (rootless nginx)
 - `helm/cpp-env` — umbrella that deploys all three as one environment (plus
   in-cluster Postgres / Redis / Mailpit / Jaeger / Kafka); see `make helm-validate`
@@ -433,8 +420,8 @@ Four charts:
 Render locally:
 
 ```bash
-helm template api helm/cpp-api --set image.repository=my-registry/cpp-api
-helm template worker helm/cpp-worker --set image.repository=my-registry/cpp-api
+helm template api helm/llm-guard --set image.repository=my-registry/llm-guard
+helm template worker helm/llm-guard-worker --set image.repository=my-registry/llm-guard
 ```
 
 **First prod deploy — start from the example overlays.** Each chart ships a
@@ -442,12 +429,12 @@ tracked, secret-free `values-prod.example.yaml`. Copy it, fill in the TODOs
 (hosts, image, datastore endpoints), and deploy:
 
 ```bash
-cp helm/cpp-api/values-prod.example.yaml helm/cpp-api/values-prod.yaml   # gitignored
-helm upgrade --install api ./helm/cpp-api -n prod -f helm/cpp-api/values-prod.yaml \
+cp helm/llm-guard/values-prod.example.yaml helm/llm-guard/values-prod.yaml   # gitignored
+helm upgrade --install api ./helm/llm-guard -n prod -f helm/llm-guard/values-prod.yaml \
   --set externalDatabase.password="$DB_PASSWORD" \
   --set externalRedis.password="$REDIS_PASSWORD" \
   --set auth.jwtSecret="$JWT_SECRET"
-# repeat for cpp-worker (its datastore/auth MUST match) and cpp-frontend
+# repeat for llm-guard-worker (its datastore/auth MUST match) and cpp-frontend
 ```
 
 **Image architecture — match it to your nodes.** CI builds the image only to run
@@ -508,7 +495,7 @@ tests/
   e2e/           Real Drogon server + HTTP client (separate binary)
 
 docker/          Dockerfile + docker-compose.yml + env presets
-helm/            Helm charts (cpp-api, cpp-worker, cpp-frontend + cpp-env umbrella), values documented
+helm/            Helm charts (llm-guard, llm-guard-worker, cpp-frontend + cpp-env umbrella), values documented
 scripts/         make-jwt.sh, smoke.sh, init-project.sh, bench.sh,
                  new-resource.sh (full CRUD), new-endpoint.sh (single
                  controller, --with-test / --patch-openapi), new-job.sh
@@ -584,7 +571,7 @@ clean, tests passing, don't break the error-response shape without updating
 
 ## Security
 
-See [SECURITY.md](SECURITY.md) — private disclosure via `security@tarassov.me`,
+See [SECURITY.md](SECURITY.md) — private disclosure via `security@example.com`,
 plus a production-hardening checklist.
 
 ## License

@@ -34,7 +34,7 @@ jobs:
           file: docker/Dockerfile
           target: runtime
           load: true
-          tags: cpp-rapid-rest-template:bench
+          tags: llm-guard:bench
           cache-from: |
             type=gha
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
@@ -44,7 +44,7 @@ jobs:
 
       - name: Run benchmarks
         env:
-          BENCH_IMAGE: cpp-rapid-rest-template:bench
+          BENCH_IMAGE: llm-guard:bench
         run: ./scripts/bench-ci.sh
 
       - name: Publish throughput trend

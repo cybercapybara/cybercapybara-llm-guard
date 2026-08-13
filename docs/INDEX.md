@@ -71,8 +71,8 @@ question instead of grepping the tree.
 |---|---|
 | [`../.github/workflows/ci.yml`](../.github/workflows/ci.yml) | GitHub Actions CI: build + test + format + secret-scan |
 | [`../.github/workflows/release.yml`](../.github/workflows/release.yml) | Tag-driven multi-arch image build + draft release |
-| [`../helm/cpp-api/`](../helm/cpp-api/) | API Helm chart |
-| [`../helm/cpp-worker/`](../helm/cpp-worker/) | Worker Helm chart |
+| [`../helm/llm-guard/`](../helm/llm-guard/) | API Helm chart |
+| [`../helm/llm-guard-worker/`](../helm/llm-guard-worker/) | Worker Helm chart |
 
 ## Scripts (`scripts/`)
 

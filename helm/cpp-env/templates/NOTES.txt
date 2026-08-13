@@ -27,8 +27,8 @@ Wiring (all in-namespace, fixed names):
 {{- end }}
 
 Create an admin once Postgres is ready:
-  kubectl -n {{ .Release.Namespace }} exec deploy/api -c cpp-api -- \
-    env METRICS_ADDRESS= /app/cpp_api_template config/config.json \
+  kubectl -n {{ .Release.Namespace }} exec deploy/api -c llm-guard -- \
+    env METRICS_ADDRESS= /app/llm_guard config/config.json \
     --create-admin admin@{{ .Values.env }}.{{ .Values.baseDomain }} 'change-me'
 
 NOTE: credentials here are TEST defaults (see values.yaml credentials:). For a

@@ -35,7 +35,7 @@ Live-deploy fixes for the 1.5.0 content module.
 - Frontend nginx now proxies the content module's public routes
   (`/sitemap.xml`, `/posts/*`, `/uploads/*`) to the backend — they previously
   fell through to the SPA catch-all and served `index.html`.
-- The cpp-api chart gained the missing uploads-storage wiring
+- The llm-guard chart gained the missing uploads-storage wiring
   (`values.storage` → config.json → Secret → `S3_ENDPOINT`/`S3_SECRET_KEY`);
   a Helm deploy could previously only run the pod-local backend.
 - `client_max_body_size 6m` on the frontend `/api/` proxy — nginx's 1m
@@ -200,7 +200,7 @@ Patch release: trusted client-IP handling and two Helm deploy fixes.
   rate limiting is disabled) and applies the same trusted-IP logic; the audit
   now uses it. Capturing the *real* client IP still requires the edge to forward
   it (PROXY protocol on the LB + ingress-nginx) and `trust_proxy=true`.
-- **Helm**: guard the cpp-api `mail-smtp-password` Secret against a nil `mail`
+- **Helm**: guard the llm-guard `mail-smtp-password` Secret against a nil `mail`
   map, so `helm upgrade --reuse-values` (whose reused values omit the optional
   mail block) no longer fails to render.
 - **Helm**: pin the cpp-env umbrella + demo image tags to the v-prefixed release
@@ -348,7 +348,7 @@ existing config files load unchanged.
 Pre-release hardening + a public demo. No breaking API changes.
 
 ### Added
-- Public demo environment at `*.demo.tarassov.me` — `helm/cpp-env/values-demo.yaml`
+- Public demo environment at `*.demo.example.com` — `helm/cpp-env/values-demo.yaml`
   + `scripts/deploy-demo.sh` (external-dns + cert-manager, Mailpit/Jaeger UIs),
   with a periodic reset CronJob that wipes and reseeds the data.
 - `THIRD_PARTY_NOTICES.md` (dependency licenses + flask-base attribution),
@@ -359,7 +359,7 @@ Pre-release hardening + a public demo. No breaking API changes.
 
 ### Changed / Fixed
 - **Security:** constant-time bearer-token compare; the production auth-guard is
-  now actually armed (`APP_ENV` wired through config + Helm); the cpp-api chart
+  now actually armed (`APP_ENV` wired through config + Helm); the llm-guard chart
   defaults to `auth.mode=jwt` so a bare install can't ship a public API.
 - **Fork experience:** `make quickstart` / `up` build the fork's own code instead
   of pulling the upstream image; neutral registry default; CODEOWNERS and
@@ -546,6 +546,6 @@ First tagged release. Highlights of the pre-release hardening pass:
 - OpenSSL linked explicitly for HMAC-SHA256 (JWT signature) and SHA-256
   (Idempotency-Key body hash); constant-time compare via `CRYPTO_memcmp`.
 
-[Unreleased]: https://gitlab.com/tarassov.me/cpp-rapid-rest-template/-/compare/v1.2.0...master
-[1.2.0]: https://gitlab.com/tarassov.me/cpp-rapid-rest-template/-/compare/v1.1.0...v1.2.0
-[1.1.0]: https://gitlab.com/tarassov.me/cpp-rapid-rest-template/-/compare/v1.0.0...v1.1.0
+[Unreleased]: https://gitlab.com/example.com/llm-guard/-/compare/v1.2.0...master
+[1.2.0]: https://gitlab.com/example.com/llm-guard/-/compare/v1.1.0...v1.2.0
+[1.1.0]: https://gitlab.com/example.com/llm-guard/-/compare/v1.0.0...v1.1.0

@@ -36,7 +36,7 @@ jobs:
           target: builder
           push: false
           load: true
-          tags: cpp-api-template:builder
+          tags: llm-guard-template:builder
           build-args: ENABLE_WERROR=ON
           cache-from: |
             type=gha
@@ -45,11 +45,11 @@ jobs:
 
       - name: Run full test suite
         # `make test` builds the test-runner stage with
-        # --cache-from cpp-rapid-rest-template:builder-latest. Alias the builder we just loaded
+        # --cache-from llm-guard:builder-latest. Alias the builder we just loaded
         # under that tag so the compose build is a cache hit instead of a full
         # recompile.
         run: |
-          docker tag cpp-api-template:builder cpp-rapid-rest-template:builder-latest
+          docker tag llm-guard-template:builder llm-guard:builder-latest
           make test
 
       - name: Dump logs on failure
@@ -199,7 +199,7 @@ jobs:
           target: builder
           push: false
           load: true
-          tags: cpp-api-template:builder
+          tags: llm-guard-template:builder
           build-args: ENABLE_WERROR=ON
           cache-from: |
             type=gha
@@ -216,7 +216,7 @@ jobs:
               -v "$PWD":/src \
               -v "$PWD/.clang-tidy":/app/.clang-tidy:ro \
               --entrypoint /bin/bash \
-              cpp-api-template:builder -c "
+              llm-guard-template:builder -c "
                   apt-get update -qq && apt-get install -y -qq clang-tidy >/dev/null && \
                   run-clang-tidy -p /app/build -quiet -header-filter='src/.*' /app/src/ \
                       | tee /src/clang-tidy.log
@@ -251,7 +251,7 @@ jobs:
           target: builder
           push: false
           load: true
-          tags: cpp-api-template:builder
+          tags: llm-guard-template:builder
           build-args: ENABLE_WERROR=ON
           cache-from: |
             type=gha
@@ -262,7 +262,7 @@ jobs:
         run: |
           docker run --rm \
               --entrypoint /bin/bash \
-              cpp-api-template:builder -c "
+              llm-guard-template:builder -c "
                   set -e
                   cd /app
                   rm -rf build-san
@@ -272,10 +272,10 @@ jobs:
                       -DENABLE_SANITIZERS=ON \
                       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
                       -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed  # reuse the builder stage's vcpkg tree (mirrors the sanitizer-builder Dockerfile stage); avoids a full vcpkg reinstall
-                  cmake --build build-san -j\$(nproc) --target cpp_api_template_tests_unit
+                  cmake --build build-san -j\$(nproc) --target llm_guard_tests_unit
                   ASAN_OPTIONS=halt_on_error=1:detect_leaks=1 \
                   UBSAN_OPTIONS=halt_on_error=1:print_stacktrace=1 \
-                  ./build-san/cpp_api_template_tests_unit \
+                  ./build-san/llm_guard_tests_unit \
                       --gtest_color=yes
               "
 
@@ -299,7 +299,7 @@ jobs:
           target: builder
           push: false
           load: true
-          tags: cpp-api-template:builder
+          tags: llm-guard-template:builder
           build-args: ENABLE_WERROR=ON
           cache-from: |
             type=gha
@@ -310,7 +310,7 @@ jobs:
         run: |
           docker run --rm \
               --entrypoint /bin/bash \
-              cpp-api-template:builder -c "
+              llm-guard-template:builder -c "
                   set -e
                   cd /app
                   rm -rf build-tsan
@@ -320,8 +320,8 @@ jobs:
                       -DENABLE_TSAN=ON \
                       -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
                       -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed
-                  cmake --build build-tsan -j\$(nproc) --target cpp_api_template_tests_unit
+                  cmake --build build-tsan -j\$(nproc) --target llm_guard_tests_unit
                   TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 \
-                  ./build-tsan/cpp_api_template_tests_unit \
+                  ./build-tsan/llm_guard_tests_unit \
                       --gtest_color=yes
               "

@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════
-# STAGE preset for the cpp-env umbrella → *.stage.tarassov.me
+# STAGE preset for the cpp-env umbrella → *.stage.example.com
 #
 # Snapshot of the live `stage` release (ns env-stage) taken with
 # `helm get values stage -n env-stage`. The umbrella keeps the chart-default
@@ -16,9 +16,9 @@
 # ═══════════════════════════════════════════════════════════════
 
 env: stage
-baseDomain: tarassov.me
+baseDomain: example.com
 
-cpp-api:
+llm-guard:
   image:
     tag: v1.4.0
 
@@ -26,11 +26,11 @@ cpp-frontend:
   image:
     tag: v1.4.0
 
-cpp-worker:
+llm-guard-worker:
   image:
     tag: v1.4.0
   app:
-    baseUrl: https://app.stage.tarassov.me
+    baseUrl: https://app.stage.example.com
   worker:
     types: account_email,email.send,webhook.deliver
 

@@ -2,10 +2,11 @@
 
 ## Reporting a vulnerability
 
-Email `security@tarassov.me` with a description of the issue, reproduction
-steps, and (if possible) a suggested fix. Do **not** open a public issue.
-You will receive an acknowledgement within 3 business days and a remediation
-timeline within 10 business days.
+Report vulnerabilities privately via GitHub Security Advisories on this
+repository, with a description of the issue, reproduction steps, and (if
+possible) a suggested fix. Do **not** open a public issue. You will receive
+an acknowledgement within 3 business days and a remediation timeline within
+10 business days.
 
 Please provide:
 

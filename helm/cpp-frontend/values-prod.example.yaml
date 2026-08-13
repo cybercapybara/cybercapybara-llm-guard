@@ -3,7 +3,7 @@
 #
 # TRACKED — ships with the template. Copy to values-prod.yaml (GITIGNORED) and
 # fill in the TODOs. The SPA is the single same-origin entry point: it serves
-# the bundle and proxies /api → the cpp-api Service, so the API does NOT need
+# the bundle and proxies /api → the llm-guard Service, so the API does NOT need
 # its own public ingress for browser traffic.
 #
 # Deploy:
@@ -22,9 +22,9 @@ image:
 nodeSelector:
   kubernetes.io/arch: amd64   # TODO: match your cluster nodes
 
-# cpp-api Service in this namespace (the cpp-api release's fullname).
+# llm-guard Service in this namespace (the llm-guard release's fullname).
 backend:
-  service: api-cpp-api   # TODO: match your cpp-api release fullname
+  service: api-llm-guard   # TODO: match your llm-guard release fullname
   port: 8080
 
 ingress:

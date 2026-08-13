@@ -5,10 +5,10 @@
   "refresh": "15s",
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["cpp-template", "cpp-worker"],
+  "tags": ["cpp-template", "llm-guard-worker"],
   "time": {"from": "now-30m", "to": "now"},
-  "title": "cpp-worker",
-  "uid": "cpp-worker",
+  "title": "llm-guard-worker",
+  "uid": "llm-guard-worker",
   "version": 1,
   "templating": {"list": []},
   "panels": [
@@ -23,7 +23,7 @@
           {"color": "red", "value": null}, {"color": "green", "value": 1}
         ]}
       }},
-      "targets": [{"refId": "A", "expr": "sum(up{job=\"cpp_worker\"})"}]
+      "targets": [{"refId": "A", "expr": "sum(up{job=\"llm_guard_worker\"})"}]
     },
     {
       "type": "stat",

@@ -50,9 +50,9 @@ q() { printf '%s' "$RENDERED" | yq "$1"; }
     fail "app/web ingress backend port != 8080 (rootless nginx listens on 8080)"
 
 # 3. MAIL_VIA_JOBS must render on the api container — it's gated on
-#    cpp-api.mail.enabled, so a missing enabled silently drops it (mail breaks).
+#    llm-guard.mail.enabled, so a missing enabled silently drops it (mail breaks).
 [ "$(q 'select(.kind=="Deployment" and .metadata.name=="api") | .spec.template.spec.containers[0].env[] | select(.name=="MAIL_VIA_JOBS") | .value')" = "true" ] ||
-    fail "MAIL_VIA_JOBS not rendered =true on api (set cpp-api.mail.enabled=true)"
+    fail "MAIL_VIA_JOBS not rendered =true on api (set llm-guard.mail.enabled=true)"
 
 # 4. Host templating must expand from baseDomain (catches an un-overridden
 #    baseDomain — the values-ci.yaml domain is ci.example.test).
@@ -75,10 +75,10 @@ printf '%s' "$workloads" | grep -qi jaeger && fail "values-minimal still renders
 # 7. Production security floor. prod-check.sh validates the JSON app-config, but
 #    the deploy-path env comes from Helm — so the rate limiter shipping fail-OPEN
 #    in prod (a Redis blip silently disables login throttling) was invisible to
-#    it. Render the cpp-api chart with the TRACKED prod example overlay and
+#    it. Render the llm-guard chart with the TRACKED prod example overlay and
 #    assert the security-critical env the cluster actually runs with.
-echo "==> helm template (cpp-api prod example) + security assertions"
-API_CHART="$ROOT/helm/cpp-api"
+echo "==> helm template (llm-guard prod example) + security assertions"
+API_CHART="$ROOT/helm/llm-guard"
 PROD_RENDERED="$(helm template prod-smoke "$API_CHART" -f "$API_CHART/values-prod.example.yaml")"
 penv() {
     printf '%s' "$PROD_RENDERED" |

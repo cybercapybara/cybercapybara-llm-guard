@@ -16,11 +16,11 @@ jaeger:
   enabled: false
 postgres:
   instances: 1 # single primary, no read replica
-cpp-api:
+llm-guard:
   externalKafka:
     enabled: false
   tracing:
     enabled: false # no Jaeger to export to
-cpp-worker:
+llm-guard-worker:
   tracing:
     enabled: false

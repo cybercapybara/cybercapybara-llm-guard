@@ -19,7 +19,7 @@ in public spaces.
 
 ## Reporting
 
-Report unacceptable behavior to the maintainers at **conduct@tarassov.me**.
+Report unacceptable behavior to the maintainers at **conduct@example.com**.
 All reports are reviewed and investigated promptly and fairly, and the
 maintainers are obligated to respect the privacy and security of the reporter.
 
