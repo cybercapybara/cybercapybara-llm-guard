@@ -115,12 +115,9 @@ while [[ "$i" -le "$NUM_PARAMS" ]]; do
     i=$((i + 1))
 done
 
-# POST conventionally answers 201; the rest 200. Tracked so the stub handler
-# and its generated test agree on the expected status.
-IS_MUTATION=0
-case "$METHOD" in
-Post | Put | Delete | Patch) IS_MUTATION=1 ;;
-esac
+# POST conventionally answers 201; the rest 200. Both the stub handler
+# (build_handler_body) and the generated test branch on "$METHOD" directly, so
+# they agree on the expected status without a separate flag.
 
 # Build the handler body once so the create-file (heredoc) and extend-file
 # (awk) paths emit identical code. Indentation is 8 spaces (inside class).
