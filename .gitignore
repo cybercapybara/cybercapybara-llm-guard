@@ -27,7 +27,7 @@ cmake_install.cmake
 CTestTestfile.cmake
 
 # Logs
-logs/
+logs/*
 !logs/.gitkeep
 *.log
 
@@ -106,9 +106,6 @@ node_modules/
 /core
 /core.*
 **/core.[0-9]*
-
-# Docker
-.dockerignore
 
 # Per-developer Compose overrides — checked-in sample is .sample-suffixed.
 docker/docker-compose.override.yml
