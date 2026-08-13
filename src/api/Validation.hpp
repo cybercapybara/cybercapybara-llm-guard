@@ -38,12 +38,6 @@ namespace Api::Validation {
 
 using json = nlohmann::json;
 
-// Password length bounds — single source for register / reset-password /
-// change-password / admin-create. Mirrored by the zod schema on the frontend
-// (frontend/src/lib/schemas/auth.ts).
-inline constexpr std::size_t kPasswordMinLen = 8;
-inline constexpr std::size_t kPasswordMaxLen = 128;
-
 struct Error {
     std::string field;
     std::string code;
@@ -171,7 +165,7 @@ inline void one_of(Errors& errs, const json& body, const std::string& field, con
  * @brief Pull an optional string field. Returns nullopt when the field is
  *        absent or not a string — collapses the
  *        `if (body.contains(f) && body[f].is_string()) x = body[f]...`
- *        boilerplate that recurs across the auth/admin controllers.
+ *        boilerplate that recurs across controllers.
  */
 inline std::optional<std::string> opt_string(const json& body, const std::string& field) {
     if (body.contains(field) && body[field].is_string())

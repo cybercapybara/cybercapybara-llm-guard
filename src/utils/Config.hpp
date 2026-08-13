@@ -93,7 +93,7 @@ public:
     /**
      * @brief Like get() but throws if neither env var nor config value is present.
      * @details Use for values that must be explicitly set in any deployment —
-     *          e.g. JWT secret, database URL in production.
+     *          e.g. an API key, database URL in production.
      */
     template <typename T>
     T require(const std::string& key, const std::string& env_var = "") const {

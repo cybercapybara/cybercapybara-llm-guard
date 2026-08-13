@@ -45,38 +45,22 @@ TEST_F(ConfigTest, InitializeAndShutdown) {
     EXPECT_FALSE(Config::is_initialized());
 }
 
-// ── Boot-time prod-safety gate (#32) — refuse auth.mode=none in production ────
+// ── Boot-time prod-safety gate ────────────────────────────────────────────
 
-TEST_F(ConfigTest, ProdRefusesAuthModeNone) {
-    setenv("APP_ENV", "production", 1);
-    setenv("AUTH_MODE", "none", 1);
+TEST_F(ConfigTest, ProdWarnsOnDocsEnabled) {
+    TestHelpers::ScopedEnv app_env("APP_ENV", "production");
+    TestHelpers::ScopedEnv docs("DOCS_ENABLED", "true");
     Config::initialize(test_config_file);
-    // The single highest-cost misconfig (every endpoint public in prod) must
-    // fail loud, not start quietly insecure.
-    EXPECT_THROW(Core::Application::validate_config(Config::get()), std::runtime_error);
+    // A publicly exposed docs UI in production warns but must not block boot.
+    EXPECT_NO_THROW(Core::Application::validate_config(Config::get()));
     Config::shutdown();
-    unsetenv("APP_ENV");
-    unsetenv("AUTH_MODE");
 }
 
-TEST_F(ConfigTest, ProdAllowsJwt) {
-    setenv("APP_ENV", "production", 1);
-    setenv("AUTH_MODE", "jwt", 1);
+TEST_F(ConfigTest, DevPassesValidation) {
+    TestHelpers::ScopedEnv app_env("APP_ENV", "development");
     Config::initialize(test_config_file);
     EXPECT_NO_THROW(Core::Application::validate_config(Config::get()));
     Config::shutdown();
-    unsetenv("APP_ENV");
-    unsetenv("AUTH_MODE");
-}
-
-TEST_F(ConfigTest, DevAllowsAuthModeNone) {
-    setenv("APP_ENV", "development", 1);
-    setenv("AUTH_MODE", "none", 1);
-    Config::initialize(test_config_file);
-    EXPECT_NO_THROW(Core::Application::validate_config(Config::get()));
-    Config::shutdown();
-    unsetenv("APP_ENV");
-    unsetenv("AUTH_MODE");
 }
 
 TEST_F(ConfigTest, GetStringValue) {
@@ -228,15 +212,6 @@ TEST_F(ConfigTest, RequireReturnsEnvOverValue) {
     }
     // Falls back to config value when env is unset.
     EXPECT_EQ(config.require<std::string>("test.value", "CFG_REQUIRED"), "hello");
-}
-
-// ── Content module master switch (posts/uploads/sitemap) ──────────────────
-
-TEST_F(ConfigTest, ContentDisabledByDefault) {
-    // test_config_file (see SetUp) carries no "content" section — the flag
-    // must default off.
-    Config::initialize(test_config_file);
-    EXPECT_FALSE(Config::get().get<bool>("content.enabled", "CONTENT_ENABLED", false));
 }
 
 TEST_F(ConfigTest, GetJsonRawAccess) {

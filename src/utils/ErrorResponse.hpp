@@ -15,7 +15,7 @@
  * @endcode
  *
  * Avoid building HttpResponse + JSON body ad-hoc in controllers — use the
- * helpers below so the frontend always parses the same shape.
+ * helpers below so every client always parses the same shape.
  */
 
 #pragma once

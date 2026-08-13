@@ -251,8 +251,8 @@ public:
     /**
      * @brief Initialize metrics with Prometheus exposer.
      *        If @p bind_address is empty, the registry is created but no HTTP
-     *        exposer is started — useful for CLI commands (--create-admin etc.)
-     *        running alongside a live server in the same container.
+     *        exposer is started — useful for one-shot CLI commands running
+     *        alongside a live server in the same container.
      */
     void initialize(const std::string& bind_address = "0.0.0.0:9090") {
         registry = std::make_shared<prometheus_ns::Registry>();

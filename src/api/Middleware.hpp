@@ -1,8 +1,8 @@
 /**
  * @file Middleware.hpp
- * @brief Drogon advice chain: content-type check, auth, rate limit,
- *        idempotency, CORS, tracing, access log + HTTP metrics, and the
- *        optional Swagger UI endpoints.
+ * @brief Drogon advice chain: content-type check, CORS, security headers,
+ *        tracing, access log + HTTP metrics, and the optional Swagger UI
+ *        endpoints.
  * @details Registration order matters and is owned by
  *          Api::register_controllers() in Api.hpp. This header is the only
  *          API-layer file that pulls the OTel SDK — controllers stay light.
@@ -33,13 +33,7 @@
 #include "api/RequestUtils.hpp"
 #include "observability/Observability.hpp"
 #include "observability/Trace.hpp"
-#include "security/ApiKeys.hpp"
-#include "security/Auth.hpp"
-#include "security/Csrf.hpp"
-#include "security/Idempotency.hpp"
-#include "security/RateLimit.hpp"
 #include "utils/Config.hpp"
-#include "utils/Crypto.hpp"
 #include "utils/ErrorResponse.hpp"
 #include "utils/Strings.hpp"
 
@@ -113,165 +107,6 @@ inline void ensure_http_metric_families() {
                                                      "HTTP request duration in seconds by method and path");
 }
 
-inline void register_auth() {
-    if (!Security::Auth::is_initialized())
-        return;
-    if (Security::Auth::get().config().mode == Security::Auth::AuthMode::None)
-        return;
-
-    drogon::app().registerSyncAdvice([](const drogon::HttpRequestPtr& req) -> drogon::HttpResponsePtr {
-        // CORS preflight (OPTIONS) carries no credentials and is answered by the
-        // CORS advice — never gate it behind auth, or the browser preflight gets
-        // a 401 and the actual request is never sent.
-        if (req->method() == drogon::Options)
-            return {};
-        auto& auth = Security::Auth::get();
-        const auto& cfg = auth.config();
-        if (auth.path_is_public(req->path()))
-            return {};
-
-        auto unauthorized = [&](const std::string& code) {
-            auto resp = ErrorResponse::unauthorized(code);
-            resp->addHeader("WWW-Authenticate", "Bearer error=\"" + code + "\"");
-            return resp;
-        };
-
-        if (cfg.mode == Security::Auth::AuthMode::Bearer) {
-            // Bearer mode is the legacy header-only path — kept verbatim.
-            const auto& header = req->getHeader("Authorization");
-            const std::string expected = "Bearer " + cfg.bearer_token;
-            // Constant-time compare: a plain `==` returns on the first differing
-            // byte, leaking the static token through response timing.
-            return Utils::Crypto::constant_time_equals(header, expected) ? drogon::HttpResponsePtr{}
-                                                                         : unauthorized("invalid_token");
-        }
-        // Machine clients: a presented API key (X-API-Key, or an Authorization
-        // token with the cpk_ prefix) fully decides the request. Absent → fall
-        // through to the JWT/cookie path below. Honored in JWT mode only.
-        if (Security::ApiKeys::request_has_key(req)) {
-            auto key_principal = Security::ApiKeys::authenticate(req);
-            if (!key_principal)
-                return unauthorized("invalid_api_key");
-            req->attributes()->insert(Security::Auth::kPrincipalAttr, *key_principal);
-            return {};
-        }
-        // JWT — accept either the Authorization header or the configured
-        // access cookie (cookie wins; SPAs never send the header). The
-        // helper handles the Bearer prefix internally.
-        std::string token = Security::Auth::extract_access_token(req, cfg.cookies);
-        if (token.empty())
-            return unauthorized("missing_token");
-
-        std::string err;
-        auto principal = auth.verify_jwt(token, err);
-        if (!principal)
-            return unauthorized(err);
-        req->attributes()->insert(Security::Auth::kPrincipalAttr, *principal);
-        return {};
-    });
-}
-
-inline void register_rate_limit() {
-    if (!Security::RateLimit::is_initialized())
-        return;
-    if (!Security::RateLimit::get().config().enabled)
-        return;
-
-    drogon::app().registerSyncAdvice([](const drogon::HttpRequestPtr& req) -> drogon::HttpResponsePtr {
-        // Don't rate-limit CORS preflight (OPTIONS) — a throttled IP would get
-        // 429 on the preflight and the browser would block the real request.
-        if (req->method() == drogon::Options)
-            return {};
-        auto& limiter = Security::RateLimit::get();
-        const auto& cfg = limiter.config();
-
-        // The auth/account surface (login, register, refresh, password-reset,
-        // token links) is auth-public, so the general public_paths skip below
-        // would leave it unthrottled — the brute-force / mail-bomb hole. Route
-        // those paths to the stricter per-IP tier FIRST, before the skip.
-        const bool is_protected = Utils::Strings::path_is_public(cfg.protected_paths, req->path());
-        if (!is_protected && Utils::Strings::path_is_public(cfg.public_paths, req->path()))
-            return {};  // genuinely public infra/static (health, metrics, docs) — never limited
-
-        Security::RateLimit::Decision d;
-        int effective_limit;
-        if (is_protected) {
-            d = limiter.check_protected(Security::RateLimit::ip_identity(req, cfg));
-            effective_limit = cfg.protected_requests;
-        } else {
-            d = limiter.check(Security::RateLimit::identity_for(req, cfg));
-            effective_limit = cfg.requests;
-        }
-        // Stash limit metadata so the post-advice can emit X-RateLimit-* on
-        // successful responses too, not only on 429.
-        req->attributes()->insert("_rl_limit", effective_limit);
-        req->attributes()->insert("_rl_remaining", d.remaining);
-        if (d.allowed)
-            return {};
-
-        auto resp = ErrorResponse::too_many_requests(d.retry_after_sec);
-        resp->addHeader("Retry-After", std::to_string(d.retry_after_sec));
-        resp->addHeader("X-RateLimit-Limit", std::to_string(effective_limit));
-        resp->addHeader("X-RateLimit-Remaining", "0");
-        return resp;
-    });
-
-    drogon::app().registerPostHandlingAdvice(
-        [](const drogon::HttpRequestPtr& req, const drogon::HttpResponsePtr& resp) {
-            // Only emit when the limiter actually ran (public paths skip it).
-            // get<int>() returns 0 on a missing key rather than throwing, so
-            // without this find() we'd stamp "X-RateLimit-Limit: 0" on every
-            // public response.
-            if (!req->attributes()->find("_rl_limit"))
-                return;
-            int limit = req->attributes()->get<int>("_rl_limit");
-            int remaining = req->attributes()->get<int>("_rl_remaining");
-            resp->addHeader("X-RateLimit-Limit", std::to_string(limit));
-            resp->addHeader("X-RateLimit-Remaining", std::to_string(remaining));
-        });
-}
-
-/**
- * @brief Double-submit-cookie CSRF guard (opt-in via security.csrf.enabled).
- * @details Enforces, for cookie-authenticated state-changing requests, that the
- *          CSRF cookie value is echoed in the configured header. The decision
- *          lives in Security::Csrf::passes() (unit-tested); this advice just
- *          feeds it the request's method/cookies/header. Off by default — the
- *          token cookie is emitted by set_session_cookies only when enabled.
- */
-inline void register_csrf() {
-    if (!Config::is_initialized())
-        return;
-    if (!Config::get().get<bool>("security.csrf.enabled", "SECURITY_CSRF_ENABLED", false))
-        return;
-    const std::string cookie_name =
-        Config::get().get<std::string>("security.csrf.cookie_name", "SECURITY_CSRF_COOKIE", "csrf-token");
-    const std::string header_name =
-        Config::get().get<std::string>("security.csrf.header_name", "SECURITY_CSRF_HEADER", "X-CSRF-Token");
-    std::string access_cookie = "__Host-access";
-    if (Security::Auth::is_initialized())
-        access_cookie = Security::Auth::get().config().cookies.access_name;
-
-    drogon::app().registerSyncAdvice(
-        [cookie_name, header_name, access_cookie](const drogon::HttpRequestPtr& req) -> drogon::HttpResponsePtr {
-            const auto m = req->method();
-            const bool unsafe = (m == drogon::Post || m == drogon::Put || m == drogon::Patch || m == drogon::Delete);
-            if (Security::Csrf::passes(
-                    unsafe, req->getCookie(access_cookie), req->getCookie(cookie_name), req->getHeader(header_name)))
-                return {};
-            return ErrorResponse::forbidden("csrf_failed", "CSRF token missing or invalid");
-        });
-}
-
-inline void register_idempotency() {
-    if (!Security::Idempotency::is_initialized())
-        return;
-    if (!Security::Idempotency::config().enabled)
-        return;
-    drogon::app().registerSyncAdvice(&Security::Idempotency::pre_handle);
-    drogon::app().registerPostHandlingAdvice(&Security::Idempotency::post_handle);
-}
-
 /**
  * @brief Middleware that rejects POST/PUT/PATCH with non-JSON Content-Type.
  * @details Without this guard, json::parse(body) inside controllers throws on
@@ -306,10 +141,9 @@ inline void register_content_type_check() {
         // application/json, or any structured-suffix JSON type
         // (e.g. application/merge-patch+json).
         const bool is_json = (ct == "application/json") || (ct.starts_with("application/") && ct.ends_with("+json"));
-        // multipart/form-data is the legitimate non-JSON body: file uploads
-        // (POST /api/v1/admin/uploads). Without this exemption the gate 415s
-        // EVERY upload before UploadController — which does its own strict
-        // validation (admin gate + magic-byte sniff + size cap) — ever runs.
+        // multipart/form-data is the legitimate non-JSON body (file uploads).
+        // Handlers that accept one are expected to do their own strict
+        // validation (size cap + content sniffing).
         const bool is_multipart = ct.starts_with("multipart/form-data");
         if (is_json || is_multipart)
             return {};
@@ -417,14 +251,14 @@ inline void register_tracing_pre() {
 
         // Compute the normalized route ONCE and stash it — the access-log
         // post-advice reuses it instead of running the segment scan a second
-        // time. It also redacts UUIDs and account tokens, so it's what we log
-        // (the raw path would leak password-reset tokens into the log).
+        // time. It also redacts UUIDs and opaque tokens, so it's what we log
+        // (the raw path would otherwise leak secrets into the log).
         const std::string route = normalize_path_for_metrics(req->path());
         req->attributes()->insert("_norm_path", route);
 
         // Defaults from the string context (used when OTel tracing is disabled).
         // When it's on we OVERWRITE these with the REAL server span's ids below,
-        // so logs, the response traceparent, and the context handed to jobs all
+        // so logs, the response traceparent, and the propagated context all
         // reference THIS span — not the caller's span id (the old bug) or a
         // phantom generated id.
         std::string trace_id = tctx.trace_id;
@@ -441,15 +275,15 @@ inline void register_tracing_pre() {
                 if (auto remote = detail::to_remote_span_context(*parsed))
                     opts.parent = *remote;
             }
-            // Normalized operation name ("GET /api/jobs/:id"): raw paths would
-            // mint a new Jaeger operation per UUID and leak account tokens.
+            // Normalized operation name ("GET /api/v1/thing/:id"): raw paths
+            // would mint a new Jaeger operation per UUID and leak tokens.
             auto span = tracer->StartSpan(
                 std::string(req->getMethodString()) + " " + route,
                 {{"http.method", std::string(req->getMethodString())}, {"http.route", route}, {"http.target", route}},
                 opts);
             // Read the real span context: its trace_id continues the upstream
             // trace (or is a fresh root) and its span_id is what child spans
-            // (db.*, and the worker's job span) must parent off. Only when it's
+            // (db.* and any downstream client span) must parent off. Only when it's
             // valid though — with tracing disabled the provider hands back a
             // no-op span whose context is all-zero; keep the string context
             // (incoming/generated) for x-request-id + propagation in that case.
@@ -479,7 +313,7 @@ inline void register_tracing_pre() {
 
         // Publish the resolved ids (real span when OTel is up, string context
         // otherwise) for the access log, the response traceparent header, and
-        // the ambient traceparent that Jobs::submit hands to the worker.
+        // the ambient traceparent used for outbound propagation.
         req->attributes()->insert(Observability::Trace::kTraceIdAttr, trace_id);
         req->attributes()->insert(Observability::Trace::kSpanIdAttr, span_id);
         req->attributes()->insert(Observability::Trace::kTraceFlagsAttr, tctx.flags);
@@ -498,7 +332,7 @@ struct Timing {
 
 inline Timing measure(const drogon::HttpRequestPtr& req) {
     // _req_start is only set by the tracing pre-advice; on short-circuit paths
-    // (auth/415/429 reject before it runs) it's absent. get<T>() returns a
+    // (the 415 content-type reject runs before it) it's absent. get<T>() returns a
     // default-constructed time_point (epoch) there, NOT a throw — so we'd
     // report uptime-as-latency. Guard with find().
     if (!req->attributes()->find("_req_start"))
@@ -597,9 +431,8 @@ inline void register_access_log_post() {
             const auto timing = access_log_detail::measure(req);
             const std::string method = std::string(req->getMethodString());
             // Reuse the route the pre-advice computed; fall back to a fresh
-            // compute on the short-circuit paths (auth/415/429) where the
-            // pre-advice never ran. Never log req->path() raw — it carries
-            // account tokens.
+            // compute on the short-circuit path (415) where the pre-advice
+            // never ran. Never log req->path() raw — it may carry secrets.
             std::string norm_path;
             if (req->attributes()->find("_norm_path"))
                 norm_path = req->attributes()->get<std::string>("_norm_path");

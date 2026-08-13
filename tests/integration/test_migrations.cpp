@@ -6,7 +6,7 @@
  * apply-pending, idempotent re-run (skip already-applied — the loser of a
  * concurrent boot relies on this), and the read-only list_pending tracker.
  * Uses a private temp migrations dir + a private tracking table-free schema
- * so it doesn't collide with the real 001_users_and_roles migration.
+ * so it doesn't collide with any real migration shipped in migrations/.
  */
 
 #include <filesystem>

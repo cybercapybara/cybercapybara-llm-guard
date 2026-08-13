@@ -25,14 +25,7 @@
 #include "cache/Cache.hpp"
 #include "database/Database.hpp"
 #include "database/Migrations.hpp"
-#include "email/Mailer.hpp"
-#include "jobs/Jobs.hpp"
-#include "messaging/Messaging.hpp"
 #include "observability/Observability.hpp"
-#include "security/Auth.hpp"
-#include "security/Idempotency.hpp"
-#include "security/RateLimit.hpp"
-#include "storage/Storage.hpp"
 #include "tasks/Tasks.hpp"
 #include "utils/Config.hpp"
 #include "utils/Pg.hpp"
@@ -90,7 +83,6 @@ inline void check_password_safety(const std::string& url) {
  */
 enum class InitMode {
     Full,        // API server: all subsystems
-    Worker,      // Worker process: skip Tasks, skip Messaging
     MigrateOnly  // Run migrations only: Config + Observability + Database + Migrations
 };
 
@@ -129,20 +121,9 @@ public:
             }
 
             init_cache_(cfg);
-            Storage::initialize(cfg);
-            if (mode != InitMode::Worker) {
-                init_messaging_(cfg);
-                Tasks::initialize();
-                register_token_reaper_();
-                register_db_pool_metric_(cfg);
-                register_replication_lag_metric_(cfg);
-            }
-            init_security_();
-            init_jobs_(cfg);
-            // Mailer comes up after Jobs because the typical flow is
-            // Jobs::submit("email", payload) → worker → Mailer::send.
-            // It's also useful in synchronous paths during dev.
-            Email::initialize();
+            Tasks::initialize();
+            register_db_pool_metric_(cfg);
+            register_replication_lag_metric_(cfg);
             register_default_health_checks_();
 
             initialized = true;
@@ -164,54 +145,25 @@ private:
     // ---------------------------------------------------------------------
 
     // Boot-time config sanity. A 12-factor app reads everything from env, so a
-    // single typo can silently flip a security control. Fail LOUD (throw →
-    // caught in initialize(), logged, process exits non-zero) on combinations
-    // that are almost always mistakes in production, rather than starting up
-    // quietly insecure. The auth.mode=jwt secret check lives in init_security_.
+    // single typo can silently flip a control. Warn LOUD on combinations that
+    // are almost always mistakes in production, rather than starting up quietly
+    // misconfigured. Extended as subsystems land — the throw path is reserved
+    // for settings that make a production boot indefensible.
     static void validate_config_(Config::AppConfig& cfg) {
         const std::string env = cfg.get<std::string>("app.env", "APP_ENV", "development");
         const bool is_prod = (env == "production" || env == "prod");
-        const std::string auth_mode = cfg.get<std::string>("auth.mode", "AUTH_MODE", "none");
 
-        if (is_prod && auth_mode == "none") {
-            throw std::runtime_error(
-                "Config validation: auth.mode=none with APP_ENV=" + env +
-                " — refusing to start a production service with every endpoint public. "
-                "Set AUTH_MODE=jwt (or bearer), or set APP_ENV=development if this is genuinely intended.");
-        }
-        if (is_prod && auth_mode == "jwt") {
-            const bool secure = cfg.get<bool>("auth.cookies.secure", "AUTH_COOKIE_SECURE", true);
-            if (!secure)
-                spdlog::warn(
-                    "Config validation: auth.cookies.secure=false in production — __Host- cookies are "
-                    "dropped and session cookies would travel over plaintext. Set AUTH_COOKIE_SECURE=true.");
-        }
         // Production-safety checks the BINARY enforces regardless of which config
         // profile / env produced the values — so the Helm deploy path can't quietly
         // bypass them the way it bypasses prod-check.sh / env-check.sh (they only
         // run against config.production.json, never the gitignored values-prod.yaml).
         if (is_prod) {
-            if (!cfg.get<bool>("rate_limit.enabled", "RATE_LIMIT_ENABLED", false))
-                spdlog::warn(
-                    "Config validation: rate_limit.enabled=false in production — /api/auth/login is "
-                    "unthrottled (brute-force exposure). Set RATE_LIMIT_ENABLED=true.");
-            else if (cfg.get<bool>("rate_limit.fail_open", "RATE_LIMIT_FAIL_OPEN", true))
-                spdlog::warn(
-                    "Config validation: rate_limit.fail_open=true in production — a Redis outage "
-                    "silently disables the limiter. Set RATE_LIMIT_FAIL_OPEN=false.");
             if (cfg.get<bool>("docs.enabled", "DOCS_ENABLED", false))
                 spdlog::warn(
                     "Config validation: docs.enabled=true in production — the API docs UI is publicly "
                     "exposed. Set DOCS_ENABLED=false.");
-            // CSRF defense-in-depth when cookie auth is on (mutations otherwise lean
-            // on SameSite=Lax alone).
-            if (auth_mode == "jwt" && cfg.get<bool>("auth.cookies.enabled", "AUTH_COOKIES_ENABLED", false) &&
-                !cfg.get<bool>("security.csrf.enabled", "SECURITY_CSRF_ENABLED", false))
-                spdlog::warn(
-                    "Config validation: cookie auth enabled but security.csrf.enabled=false in "
-                    "production — mutations rely on SameSite=Lax only. Set SECURITY_CSRF_ENABLED=true.");
         }
-        spdlog::info("Config validated (env={}, auth_mode={})", env, auth_mode);
+        spdlog::info("Config validated (env={})", env);
     }
 
     static void init_observability_(Config::AppConfig& cfg) {
@@ -323,8 +275,8 @@ private:
         // lock spike) parks the loop for up to (max_attempts-1)*max_delay and
         // stalls UNRELATED requests on the same loop. Keep the request-path
         // defaults tight (2 attempts, 20→200ms ≈ 0.2s worst case) so a hiccup is
-        // a brief latency bump, not a correlated cliff. The worker runs DB work
-        // off the IO loops — raise DB_RETRY_* there if you want more retries.
+        // a brief latency bump, not a correlated cliff. Off-loop callers can
+        // raise DB_RETRY_* if they want more retries.
         Retry::Policy p;
         p.max_attempts = cfg.get<int>("database.retry.max_attempts", "DB_RETRY_MAX_ATTEMPTS", 2);
         p.base_delay_ms = cfg.get<int>("database.retry.base_delay_ms", "DB_RETRY_BASE_DELAY_MS", 20);
@@ -383,123 +335,6 @@ private:
             auto url = cfg.get<std::string>("cache.url", "REDIS_URL", "tcp://127.0.0.1:6379");
             Cache::initialize(url, pool_size, password, sock_to, pool_to);
         }
-    }
-
-    static std::vector<std::string> read_kafka_topics_(Config::AppConfig& cfg) {
-        std::vector<std::string> topics;
-        try {
-            auto node = cfg.get_json().at("messaging").at("kafka").at("consumer").at("topics");
-            for (const auto& t : node)
-                topics.push_back(t.get<std::string>());
-        } catch (...) {
-            topics.push_back("default_topic");
-        }
-        return topics;
-    }
-
-    static void init_messaging_(Config::AppConfig& cfg) {
-        if (!cfg.get<bool>("messaging.enabled", "MESSAGING_ENABLED", false))
-            return;
-
-        Messaging::initialize();
-        auto brokers = cfg.get<std::string>("messaging.kafka.brokers", "KAFKA_BROKERS", "localhost:9092");
-
-        if (cfg.get<bool>("messaging.kafka.producer.enabled", "KAFKA_PRODUCER_ENABLED", false)) {
-            auto producer_id =
-                cfg.get<std::string>("messaging.kafka.producer.client_id", "KAFKA_PRODUCER_ID", "llm_guard_producer");
-            Messaging::get().initialize_producer(brokers, producer_id);
-        }
-        if (cfg.get<bool>("messaging.kafka.consumer.enabled", "KAFKA_CONSUMER_ENABLED", false)) {
-            auto group_id =
-                cfg.get<std::string>("messaging.kafka.consumer.group_id", "KAFKA_GROUP_ID", "cpp_consumer_group");
-            Messaging::get().initialize_consumer(brokers, group_id, read_kafka_topics_(cfg));
-        }
-    }
-
-    // Throws if auth.mode=jwt and no secret is set — refuse to silently start
-    // a service that would accept unauthenticated traffic.
-    static void init_security_() {
-        Security::Auth::initialize();
-        Security::RateLimit::initialize();
-        Security::Idempotency::initialize();
-    }
-
-    // Registers jobs_dlq_depth as a Prometheus gauge, labeled by job type
-    // so operators can spot which queue specifically is clogged. The
-    // special label value `_total` carries the aggregate across every
-    // type for single-stat widgets. Refreshed every N seconds from Redis.
-    static void register_dlq_metric_(Config::AppConfig& cfg) {
-        if (!Observability::is_initialized() || !Tasks::is_initialized())
-            return;
-        auto& family =
-            Observability::get().metrics().create_gauge("jobs_dlq_depth",
-                                                        "Current depth of the jobs dead-letter queue by type "
-                                                        "(special label type=\"_total\" for the aggregate)");
-        int refresh_sec = cfg.get<int>("jobs.dlq_metric_refresh_sec", "JOBS_DLQ_METRIC_REFRESH_SEC", 10);
-        // Per-registration "every type ever published" set, so a queue that
-        // DRAINS gets reset to 0 — dlq_depth_by_type() omits empty types, so
-        // without this the gauge for a now-empty type sticks at its last value.
-        // Owned by the lambda (shared_ptr by value), so it's fresh on each
-        // Core init and freed when Tasks drops the task — no cross-reinit leak
-        // (a function-local static would have leaked one test's types into the
-        // next in a long-lived test binary).
-        auto ever_seen = std::make_shared<std::unordered_set<std::string>>();
-        Tasks::schedule_recurring("jobs_dlq_depth_refresh", std::chrono::seconds(refresh_sec), [&family, ever_seen] {
-            // `family` is owned by the Observability registry. Shutdown order
-            // (Tasks before Observability) plus app().quit() before
-            // Core::shutdown() means the timer is stopped while the loop is
-            // already idle, so `family` outlives every tick. The guard is
-            // defense-in-depth: if a tick ever raced teardown, bail before
-            // touching the family rather than dereferencing a freed registry.
-            if (!Observability::is_initialized() || !Jobs::is_initialized())
-                return;
-            auto per_type = Jobs::get().dlq_depth_by_type();
-            long total = 0;
-            for (const auto& [type, depth] : per_type) {
-                family.Add({{"type", type}}).Set(static_cast<double>(depth));
-                ever_seen->insert(type);
-                total += depth;
-            }
-            for (const auto& type : *ever_seen) {
-                if (per_type.find(type) == per_type.end())
-                    family.Add({{"type", type}}).Set(0.0);
-            }
-            family.Add({{"type", "_total"}}).Set(static_cast<double>(total));
-        });
-    }
-
-    // Registers jobs_queue_depth as a Prometheus gauge, labeled by job type
-    // (special label type="_total" for the aggregate). The LEADING indicator
-    // of saturation — a climbing waiting-queue means submitters are outrunning
-    // the worker pool, visible long before anything lands in the DLQ. Mirrors
-    // register_dlq_metric_ exactly, over jobs:queue:* instead of jobs:dlq:*.
-    static void register_queue_depth_metric_(Config::AppConfig& cfg) {
-        if (!Observability::is_initialized() || !Tasks::is_initialized())
-            return;
-        auto& family = Observability::get().metrics().create_gauge("jobs_queue_depth",
-                                                                   "Current depth of the waiting jobs queue by type "
-                                                                   "(special label type=\"_total\" for the aggregate)");
-        int refresh_sec = cfg.get<int>("jobs.queue_metric_refresh_sec", "JOBS_QUEUE_METRIC_REFRESH_SEC", 10);
-        // Same drain-to-zero bookkeeping as the DLQ gauge: queue_depth_by_type()
-        // omits empty types, so a queue that drains would otherwise stick at its
-        // last value.
-        auto ever_seen = std::make_shared<std::unordered_set<std::string>>();
-        Tasks::schedule_recurring("jobs_queue_depth_refresh", std::chrono::seconds(refresh_sec), [&family, ever_seen] {
-            if (!Observability::is_initialized() || !Jobs::is_initialized())
-                return;
-            auto per_type = Jobs::get().queue_depth_by_type();
-            long total = 0;
-            for (const auto& [type, depth] : per_type) {
-                family.Add({{"type", type}}).Set(static_cast<double>(depth));
-                ever_seen->insert(type);
-                total += depth;
-            }
-            for (const auto& type : *ever_seen) {
-                if (per_type.find(type) == per_type.end())
-                    family.Add({{"type", type}}).Set(0.0);
-            }
-            family.Add({{"type", "_total"}}).Set(static_cast<double>(total));
-        });
     }
 
     // Registers db_pool_active_connections + db_pool_size gauges, labeled by
@@ -575,26 +410,6 @@ private:
         });
     }
 
-    // Periodically prune expired single-use token nonces (used_tokens,
-    // migration 002). Unlike the old Redis TTL nonce these rows are permanent,
-    // so without a reaper the table + its index grow monotonically.
-    static void register_token_reaper_() {
-        if (!Tasks::is_initialized() || !Database::is_initialized())
-            return;
-        Tasks::schedule_recurring("used_tokens_reaper", std::chrono::hours(1), [] {
-            if (!Database::is_initialized())
-                return;
-            try {
-                Database::get().execute_write([](auto& txn) {
-                    txn.exec("DELETE FROM used_tokens WHERE expires_at < now()");
-                    return 0;
-                });
-            } catch (const std::exception& e) {
-                spdlog::warn("used_tokens reaper failed: {}", e.what());
-            }
-        });
-    }
-
     // Registers the subsystem probes the template ships with. Services
     // that add their own modules can call Core::get().register_health_check
     // at any point after Core::initialize() returns.
@@ -605,33 +420,6 @@ private:
         if (Cache::is_initialized()) {
             register_health_check("cache", [] { return Cache::get().health_check(); });
         }
-        if (Jobs::is_initialized()) {
-            register_health_check("jobs", [] { return Jobs::get().health_check(); });
-        }
-        // Optional dependencies (SMTP, object storage, Kafka) belong here as
-        // DEGRADED probes — their outage should show in /health but must NOT
-        // pull the pod out of rotation via /ready. Register them once those
-        // modules expose a cheap connectivity check, e.g.:
-        //   if (Messaging::is_initialized())
-        //       register_health_check("kafka", [] { return Messaging::get().health_check(); }, /*critical=*/false);
-    }
-
-    static void init_jobs_(Config::AppConfig& cfg) {
-        if (!cfg.get<bool>("jobs.enabled", "JOBS_ENABLED", false))
-            return;
-        long ttl = cfg.get<int>("jobs.result_ttl", "JOBS_RESULT_TTL", 86400);
-        int retries = cfg.get<int>("jobs.max_retries", "JOBS_MAX_RETRIES", 3);
-        Jobs::initialize(ttl, retries);
-        // Reliability knobs (opt-in; 0 keeps the legacy immediate-requeue /
-        // no-lease behaviour). promote_due_jobs() / reap_expired_leases() are
-        // driven from the worker loop.
-        const int backoff_base = cfg.get<int>("jobs.retry_backoff_base_ms", "JOBS_RETRY_BACKOFF_BASE_MS", 0);
-        const int backoff_max = cfg.get<int>("jobs.retry_backoff_max_ms", "JOBS_RETRY_BACKOFF_MAX_MS", 60000);
-        const int visibility = cfg.get<int>("jobs.visibility_timeout_sec", "JOBS_VISIBILITY_TIMEOUT_SEC", 0);
-        Jobs::get().set_retry_backoff(backoff_base, backoff_max);
-        Jobs::get().set_visibility_timeout(visibility);
-        register_dlq_metric_(cfg);
-        register_queue_depth_metric_(cfg);
     }
 
 public:
@@ -643,9 +431,9 @@ public:
      * @param critical When true (default) a failing probe makes /ready report
      *        NotReady (kube pulls the pod from rotation). When false the probe
      *        is "degraded": still surfaced in /health, but a failure does NOT
-     *        fail readiness — for optional dependencies (SMTP, object storage,
-     *        Kafka) whose outage shouldn't take the whole service out of
-     *        rotation. Thread-safe; typically called once during subsystem init.
+     *        fail readiness — for optional dependencies whose outage shouldn't
+     *        take the whole service out of rotation. Thread-safe; typically
+     *        called once during subsystem init.
      */
     void register_health_check(std::string name, HealthFn probe, bool critical = true) {
         std::lock_guard<std::mutex> lock(health_mu_);
@@ -722,20 +510,8 @@ public:
         // unconditionally is safe and leaves nothing dangling for a retry.
         spdlog::info("=== Application Shutdown Started ===");
 
-        if (Email::is_initialized())
-            Email::shutdown();
-        if (Jobs::is_initialized())
-            Jobs::shutdown();
-        if (Security::Idempotency::is_initialized())
-            Security::Idempotency::shutdown();
-        if (Security::RateLimit::is_initialized())
-            Security::RateLimit::shutdown();
-        if (Security::Auth::is_initialized())
-            Security::Auth::shutdown();
         if (Tasks::is_initialized())
             Tasks::shutdown();
-        if (Messaging::is_initialized())
-            Messaging::shutdown();
         if (Cache::is_initialized())
             Cache::shutdown();
         if (Migrations::is_initialized())
@@ -819,7 +595,7 @@ inline bool health_check() {
 }
 
 /**
- * @brief Shutdown state flag, flipped by main/worker signal handlers before
+ * @brief Shutdown state flag, flipped by the main signal handler before
  *        Core::shutdown() is called. Used by /ready so Kubernetes stops
  *        sending new traffic while in-flight requests complete.
  */
@@ -830,18 +606,6 @@ inline void begin_shutdown() {
 }
 inline bool is_shutting_down() {
     return shutting_down_flag.load();
-}
-
-/// Content module (posts/uploads/sitemap) master switch. Routes are
-/// statically registered, so handlers consult this per-request and 404
-/// when the module is off. Same is_initialized() guard as
-/// ContentPagesController::base_url — a handler can run before/after Core
-/// teardown in tests, and Config::get() throws when uninitialized; treat
-/// that the same as "off" rather than letting it escape as a 500.
-inline bool content_enabled() {
-    if (!Config::is_initialized())
-        return false;
-    return Config::get().get<bool>("content.enabled", "CONTENT_ENABLED", false);
 }
 
 }  // namespace Core

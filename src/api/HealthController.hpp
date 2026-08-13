@@ -73,7 +73,7 @@ public:
         } else {
             critical_ok = false;
         }
-        // A degraded optional dependency (SMTP/storage/Kafka) reports "degraded"
+        // A degraded optional dependency reports "degraded"
         // but stays 200 — only a critical-component failure returns 503, matching
         // what /ready (Core::health_check) gates on.
         const char* status = !critical_ok ? "unhealthy" : (any_degraded_down ? "degraded" : "healthy");
@@ -100,7 +100,7 @@ public:
         for (const auto& ep : get_endpoints()) {
             endpoints_json.push_back({{"method", ep.method}, {"path", ep.path}, {"description", ep.description}});
         }
-        callback(Response::ok({{"message", "C++ API Template"},
+        callback(Response::ok({{"message", "llm-guard"},
                                {"version", Core::is_initialized() ? Core::get().version() : std::string("unknown")},
                                {"endpoints", endpoints_json}}));
     }

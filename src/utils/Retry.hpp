@@ -97,7 +97,7 @@ inline int compute_delay_ms(int attempt_zero_based, const Policy& p) {
  * @brief Call @p fn, retrying transient failures up to @p p.max_attempts.
  * @tparam Fn    Callable returning any type (including void).
  * @tparam Pred  Callable bool(const std::exception&) classifying transience.
- * @param component Short label used for logs ("db", "redis", "kafka").
+ * @param component Short label used for logs ("db", "redis", "upstream").
  * @throws The last exception if @p p.max_attempts is exhausted or the
  *         exception is classified as non-transient.
  */

@@ -29,7 +29,7 @@ TEST_F(RootEndpointTest, GetRoot) {
     EXPECT_EQ(captured->statusCode(), k200OK);
 
     auto body = json::parse(std::string(captured->body()));
-    EXPECT_EQ(body["message"], "C++ API Template");
+    EXPECT_EQ(body["message"], "llm-guard");
     EXPECT_TRUE(body.contains("version"));
     EXPECT_TRUE(body.contains("endpoints"));
     EXPECT_TRUE(body["endpoints"].is_array());

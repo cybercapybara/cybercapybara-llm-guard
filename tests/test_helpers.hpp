@@ -18,10 +18,7 @@
 #include "core/Core.hpp"
 #include "database/Database.hpp"
 #include "database/Migrations.hpp"
-#include "jobs/Jobs.hpp"
-#include "messaging/Messaging.hpp"
 #include "observability/Observability.hpp"
-#include "security/Auth.hpp"
 #include "tasks/Tasks.hpp"
 #include "utils/Config.hpp"
 
@@ -101,9 +98,6 @@ inline std::string minimal_config() {
            redis_url() + R"(",
         "pool_size": 2,
         "use_sentinel": false
-    },
-    "messaging": {
-        "enabled": false
     }
 })";
 }
@@ -177,13 +171,7 @@ inline void reset_all_globals() {
     // Core::begin_shutdown() leaves every later /ready returning 503.
     Core::shutting_down_flag.store(false);
     try {
-        Jobs::shutdown();
-    } catch (...) {}
-    try {
         Tasks::shutdown();
-    } catch (...) {}
-    try {
-        Messaging::shutdown();
     } catch (...) {}
     try {
         Cache::shutdown();
@@ -260,52 +248,6 @@ inline void remove_temp_config(const std::string& path = "test_temp_config.json"
 }
 
 // ---------------------------------------------------------------------------
-// Shared cleanup helpers — one definition instead of per-suite copies that
-// drift (an early copy forgot the jobs:index zsets and leaked into the
-// global index).
-// ---------------------------------------------------------------------------
-
-/// Wipe the users table between tests. Requires Database to be initialized.
-/// CASCADE so tables with an FK to users (api_keys, and any owner-scoped
-/// resource a fork adds) are cleared too — plain TRUNCATE errors on a referenced
-/// table.
-inline void truncate_users() {
-    Database::get().execute_write([](auto& txn) {
-        txn.exec("TRUNCATE TABLE users CASCADE");
-        return 0;
-    });
-}
-
-/**
- * @brief Drain job state for the given queue types: queued ids, their job
- *        blobs, the per-type queue/DLQ/index keys, and the ids' entries in
- *        the global jobs:index. Requires Cache to be initialized.
- */
-inline void drain_jobs(const std::vector<std::string>& types) {
-    auto& redis = Cache::get().get_client();
-    for (const auto& type : types) {
-        std::vector<std::string> ids;
-        try {
-            redis.lrange(Jobs::queue_key(type), 0, -1, std::back_inserter(ids));
-            redis.lrange(Jobs::dlq_key(type), 0, -1, std::back_inserter(ids));
-            redis.zrange(Jobs::index_key_for(type), 0, -1, std::back_inserter(ids));
-        } catch (...) {}
-        for (const auto& id : ids) {
-            try {
-                redis.del(Jobs::job_key(id));
-                redis.zrem(Jobs::index_key(), id);
-                redis.srem(Jobs::kDlqAllKey, id);
-            } catch (...) {}
-        }
-        try {
-            redis.del(Jobs::queue_key(type));
-            redis.del(Jobs::dlq_key(type));
-            redis.del(Jobs::index_key_for(type));
-        } catch (...) {}
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Request builders — drive controllers via these instead of hand-rolling
 // HttpRequest construction in every test (the CONVENTIONS gotchas).
 // ---------------------------------------------------------------------------
@@ -329,23 +271,6 @@ inline drogon::HttpRequestPtr post_json(const nlohmann::json& body) {
     return make_request(drogon::Post, body);
 }
 
-/// Stamp a principal onto a request, mirroring what the auth middleware
-/// does after verifying an access token.
-inline drogon::HttpRequestPtr with_principal(drogon::HttpRequestPtr req, const Security::Auth::AuthPrincipal& p) {
-    req->attributes()->insert(Security::Auth::kPrincipalAttr, p);
-    return req;
-}
-
-inline drogon::HttpRequestPtr authed(const Security::Auth::AuthPrincipal& p, drogon::HttpMethod method = drogon::Get) {
-    return with_principal(make_request(method), p);
-}
-
-inline drogon::HttpRequestPtr authed_json(const Security::Auth::AuthPrincipal& p,
-                                          const nlohmann::json& body,
-                                          drogon::HttpMethod method = drogon::Post) {
-    return with_principal(make_request(method, body), p);
-}
-
 // ---------------------------------------------------------------------------
 // Shared fixture base: boots Core from minimal_config() + per-suite overrides,
 // skips when Postgres/Redis sidecars are unreachable, and tears everything
@@ -356,14 +281,14 @@ class CoreBackedTest : public ::testing::Test {
 protected:
     std::string config_path_;
 
-    /// Override to patch the minimal config (e.g. cfg["jobs"]["enabled"] = true).
+    /// Override to patch the minimal config (e.g. cfg["cache"]["pool_size"] = 4).
     virtual void config_overrides(nlohmann::json& /*cfg*/) {}
 
     /// Override to use a distinct file name when suites run interleaved.
     virtual std::string config_file_name() const { return "core_backed_test_config.json"; }
 
-    /// Override to false for suites that only need Redis (e.g. pure job-queue
-    /// tests) — they then run in Redis-only environments too.
+    /// Override to false for suites that only need Redis — they then run in
+    /// Redis-only environments too.
     virtual bool requires_postgres() const { return true; }
 
     /// Hook running right after Core::initialize — e.g. to attach a dedicated

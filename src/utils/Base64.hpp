@@ -2,9 +2,9 @@
  * @file Base64.hpp
  * @brief base64url encode / decode (RFC 4648 §5, no padding).
  *
- * Used by Auth (JWT), Tokens (signed timed link tokens), and any future
- * primitive that needs to round-trip bytes through a URL-safe channel.
- * Centralized here so multiple modules don't carry near-identical copies.
+ * Used by any primitive that needs to round-trip bytes through a URL-safe
+ * channel. Centralized here so multiple modules don't carry near-identical
+ * copies.
  */
 
 #pragma once

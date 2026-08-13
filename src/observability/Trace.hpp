@@ -13,8 +13,8 @@
  *
  *          Full OTel SDK context propagation (injecting into a Span's
  *          parent context) is a natural follow-up — the skeleton here is
- *          enough for log correlation and for downstream HTTP/Kafka
- *          carriers to forward the same trace ID.
+ *          enough for log correlation and for downstream HTTP carriers to
+ *          forward the same trace ID.
  */
 
 #pragma once
@@ -171,12 +171,11 @@ inline TraceContext extract_or_generate(std::string_view traceparent_header) {
 // Ambient "current request" traceparent.
 //
 // Set by the HTTP tracing advice for the duration of synchronous handler
-// execution (handlers run synchronously on Drogon IO threads) and read by
-// Jobs::submit, so a job enqueued while serving a request carries the
-// originating trace context across the process boundary to the worker. Pure
-// string — no OpenTelemetry coupling — so the deliberately OTel-free Jobs
-// module can read it. Empty outside a request (e.g. scheduled tasks), in which
-// case the worker simply starts a fresh root span as before.
+// execution (handlers run synchronously on Drogon IO threads) and read by any
+// component that hands work across a process boundary, so the originating
+// trace context travels with it. Pure string — no OpenTelemetry coupling — so
+// deliberately OTel-free modules can read it. Empty outside a request (e.g.
+// scheduled tasks), in which case the callee starts a fresh root span.
 // ---------------------------------------------------------------------------
 inline std::string& current_traceparent_ref() {
     thread_local std::string tp;

@@ -2,8 +2,8 @@
  * @file Crypto.hpp
  * @brief HMAC-SHA256 + constant-time compare + random hex.
  *
- * Centralized so Auth (JWT), Tokens (link tokens) and any future primitive
- * share one implementation instead of carrying near-identical copies.
+ * Centralized so every module that needs a MAC, a timing-safe compare, or a
+ * random hex string shares one implementation instead of carrying copies.
  */
 
 #pragma once

@@ -2,12 +2,11 @@
   "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg/master/scripts/vcpkg.schema.json",
   "name": "llm-guard",
   "version": "1.4.0",
-  "description": "C++20 REST API template — Drogon + libpqxx + redis-plus-plus + Kafka + observability",
+  "description": "llm-guard — C++20 LLM-guardrails masking proxy: Drogon + libpqxx + redis-plus-plus + observability",
   "dependencies": [
     "drogon",
     "libpqxx",
     "redis-plus-plus",
-    "librdkafka",
     "spdlog",
     "prometheus-cpp",
     {
@@ -17,6 +16,6 @@
     "nlohmann-json",
     "gtest"
   ],
-  "$comment": "libsodium and libcurl come from the OS (apt: libsodium-dev, libcurl4-openssl-dev) — vcpkg's libsodium port fails to build on arm64-linux. inja is fetched header-only via CMake FetchContent (see CMakeLists.txt). Both choices keep the docker build green on x86_64 and arm64.",
+  "$comment": "libcurl comes from the OS (apt: libcurl4-openssl-dev) rather than a vcpkg port — keeps the docker build green on x86_64 and arm64.",
   "builtin-baseline": "c4aad2868cfbe7c364192d5de82385647f8425b1"
 }

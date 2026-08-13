@@ -2,9 +2,9 @@
  * @file main.cpp
  * @brief Application entry point
  * @details Parses CLI/ops flags, then either runs a one-shot mode
- *          (migrations, config dump, admin bootstrap, …) or boots the
- *          Drogon HTTP server. Each mode lives in its own function; main()
- *          is just argument parsing + dispatch.
+ *          (migrations, config dump, route listing) or boots the Drogon HTTP
+ *          server. Each mode lives in its own function; main() is just
+ *          argument parsing + dispatch.
  */
 
 #include <atomic>
@@ -24,11 +24,6 @@
 #include "core/Core.hpp"
 #include "database/Database.hpp"
 #include "database/Migrations.hpp"
-#include "domain/Role.hpp"
-#include "domain/User.hpp"
-#include "repositories/RoleRepository.hpp"
-#include "repositories/UserRepository.hpp"
-#include "security/Password.hpp"
 #include "utils/Config.hpp"
 
 namespace {
@@ -41,13 +36,10 @@ void signal_handler(int /*signal*/) {
     shutdown_requested.store(true);
 }
 
-// Parsed command line. `mode` is the ops flag (empty = boot the server);
-// arg1/arg2 are mode-specific positional data (e.g. email + password).
+// Parsed command line. `mode` is the ops flag (empty = boot the server).
 struct CliArgs {
     std::string mode;
     std::string config_file = "config/config.json";
-    std::string arg1;
-    std::string arg2;
 };
 
 CliArgs parse_cli(int argc, char* argv[]) {
@@ -58,25 +50,8 @@ CliArgs parse_cli(int argc, char* argv[]) {
             args.mode = "--help";
             break;
         }
-        if (a == "--print-routes" || a == "--dump-config" || a == "--verify-migrations" || a == "--run-migrations" ||
-            a == "--setup-dev") {
+        if (a == "--print-routes" || a == "--dump-config" || a == "--verify-migrations" || a == "--run-migrations") {
             args.mode = a;
-            continue;
-        }
-        // Modes that consume tail arguments. create-admin takes EMAIL [PASS],
-        // seed-fake takes [N]. A positional config path must precede the flag.
-        if (a == "--create-admin") {
-            args.mode = a;
-            if (i + 1 < argc)
-                args.arg1 = argv[++i];
-            if (i + 1 < argc)
-                args.arg2 = argv[++i];
-            continue;
-        }
-        if (a == "--seed-fake") {
-            args.mode = a;
-            if (i + 1 < argc)
-                args.arg1 = argv[++i];
             continue;
         }
         // Positional: first non-flag arg is the config path.
@@ -90,14 +65,11 @@ CliArgs parse_cli(int argc, char* argv[]) {
 
 void print_usage() {
     std::cout << "Usage: llm_guard [config.json] [ops flag]\n"
-              << "  --print-routes              print registered endpoints and exit\n"
-              << "  --dump-config               print resolved config as JSON and exit\n"
-              << "  --verify-migrations         list pending migrations and exit (1 if any)\n"
-              << "  --run-migrations            apply pending migrations and exit\n"
-              << "  --setup-dev                 apply migrations + seed roles (no-op if already done)\n"
-              << "  --create-admin EMAIL [PASS] create an Administrator user (default password: 'password')\n"
-              << "  --seed-fake [N]             insert N fake users (default 10) for dev/demo\n"
-              << "  --help, -h                  this message\n"
+              << "  --print-routes        print registered endpoints and exit\n"
+              << "  --dump-config         print resolved config as JSON and exit\n"
+              << "  --verify-migrations   list pending migrations and exit (1 if any)\n"
+              << "  --run-migrations      apply pending migrations and exit\n"
+              << "  --help, -h            this message\n"
               << "\nPositional: path to config JSON (default: config/config.json)\n";
 }
 
@@ -149,91 +121,6 @@ int run_verify_migrations(const std::string& config_file) {
     Database::shutdown();
     Config::shutdown();
     return pending.empty() ? 0 : 1;
-}
-
-// Run migrations (seeding the starter roles) then exit. Idempotent.
-// flask-base parity: manage.py setup_dev.
-int run_setup_dev(const std::string& config_file) {
-    Core::initialize(config_file, Core::InitMode::MigrateOnly);
-    std::cout << "setup-dev: migrations applied; roles seeded." << std::endl;
-    Core::shutdown();
-    return 0;
-}
-
-// Create an Administrator user, or upgrade the existing one to Administrator +
-// reset its password. flask-base parity: manage.py setup_general ADMIN_EMAIL.
-int run_create_admin(const std::string& config_file, const std::string& email, const std::string& password) {
-    if (email.empty()) {
-        std::cerr << "ERROR: --create-admin requires EMAIL [PASSWORD]" << std::endl;
-        return 2;
-    }
-    Core::initialize(config_file);
-    Repositories::RoleRepository roles;
-    auto admin_role = roles.find_by_name("Administrator");
-    if (!admin_role) {
-        std::cerr << "ERROR: Administrator role missing — run --setup-dev first" << std::endl;
-        Core::shutdown();
-        return 3;
-    }
-    Repositories::UserRepository users;
-    auto existing = users.find_by_email(email);
-    const std::string hash = Security::Password::hash(password);
-    if (existing) {
-        users.update_password_hash(existing->id, hash);
-        users.change_role(existing->id, admin_role->id);
-        std::cout << "Updated existing user " << email << " — role=Administrator, password reset." << std::endl;
-    } else {
-        auto created = users.create(email, hash, std::nullopt, std::nullopt, admin_role->id, /*confirmed=*/true);
-        std::cout << "Created Administrator " << email << " (id=" << created.id << ")" << std::endl;
-    }
-    Core::shutdown();
-    return 0;
-}
-
-// Insert N (default 10) fake users for dev/demo. flask-base parity:
-// manage.py add_fake_data — deterministic pattern instead of a Faker dep.
-int run_seed_fake(const std::string& config_file, const std::string& count_arg) {
-    int n = 10;
-    if (!count_arg.empty()) {
-        try {
-            n = std::stoi(count_arg);
-        } catch (...) {
-            n = 10;
-        }
-    }
-    if (n < 1)
-        n = 1;
-    if (n > 1000)
-        n = 1000;
-    Core::initialize(config_file);
-    Repositories::RoleRepository roles;
-    auto user_role = roles.find_default();
-    if (!user_role) {
-        std::cerr << "ERROR: default role missing — run --setup-dev first" << std::endl;
-        Core::shutdown();
-        return 3;
-    }
-    Repositories::UserRepository users;
-    const std::string hash = Security::Password::hash("password");
-    int created = 0;
-    for (int i = 0; i < n; ++i) {
-        std::string email = "fake" + std::to_string(i) + "@example.com";
-        try {
-            users.create(email,
-                         hash,
-                         std::string("Fake"),
-                         std::string(std::to_string(i)),
-                         user_role->id,
-                         /*confirmed=*/true);
-            ++created;
-        } catch (const Repositories::DuplicateEmail&) {
-            // already there from a previous run — skip silently
-        }
-    }
-    std::cout << "Seeded " << created << " fake user(s) (skipped " << (n - created) << " already-existing)."
-              << std::endl;
-    Core::shutdown();
-    return 0;
 }
 
 // Boot the HTTP server and block until a shutdown signal drains it.
@@ -363,7 +250,7 @@ int main(int argc, char* argv[]) {
         }
 
         std::cout << "==================================================" << std::endl;
-        std::cout << "       C++ API Template Starting                  " << std::endl;
+        std::cout << "       llm-guard starting                         " << std::endl;
         std::cout << "==================================================" << std::endl;
         std::cout << "Loading configuration from: " << args.config_file << std::endl;
         std::filesystem::create_directories("logs");
@@ -380,20 +267,6 @@ int main(int argc, char* argv[]) {
             return run_dump_config(args.config_file);
         if (args.mode == "--verify-migrations")
             return run_verify_migrations(args.config_file);
-
-        // CLI one-shots are typically exec'd inside a container that already
-        // has the long-running server bound to METRICS_ADDRESS. Disable the
-        // exposer so the second process doesn't try to bind the same port.
-        if (args.mode == "--setup-dev" || args.mode == "--create-admin" || args.mode == "--seed-fake") {
-            ::setenv("METRICS_ADDRESS", "", /*overwrite=*/1);
-        }
-
-        if (args.mode == "--setup-dev")
-            return run_setup_dev(args.config_file);
-        if (args.mode == "--create-admin")
-            return run_create_admin(args.config_file, args.arg1, args.arg2.empty() ? "password" : args.arg2);
-        if (args.mode == "--seed-fake")
-            return run_seed_fake(args.config_file, args.arg1);
 
         return run_server(args.config_file);
 

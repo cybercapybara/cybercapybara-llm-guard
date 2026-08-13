@@ -69,9 +69,9 @@ TEST(TraceTest, ExtractOrGenerateFallsBack) {
     EXPECT_EQ(ctx2.trace_id.size(), 32u);
 }
 
-// Ambient traceparent: the bridge that lets Jobs::submit (OTel-decoupled) carry
-// the request's trace context to the worker. Set by the HTTP advice, read by
-// submit, cleared in post-advice.
+// Ambient traceparent: the bridge that lets OTel-decoupled components carry the
+// request's trace context across a process boundary. Set by the HTTP advice,
+// read by the outbound caller, cleared in post-advice.
 TEST(TraceTest, AmbientTraceparentDefaultsEmpty) {
     T::clear_current_traceparent();
     EXPECT_TRUE(T::current_traceparent().empty());
