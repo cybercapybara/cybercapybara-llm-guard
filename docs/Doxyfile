@@ -1,9 +1,9 @@
-# Doxyfile for C++ API Template
+# Doxyfile for llm-guard
 
 # Project information
-PROJECT_NAME           = "C++ API Template"
+PROJECT_NAME           = "llm-guard"
 PROJECT_NUMBER         = 1.0.0
-PROJECT_BRIEF          = "Modular C++20 API Template with Drogon, PostgreSQL, Redis, and Kafka"
+PROJECT_BRIEF          = "Modular C++20 service with Drogon, PostgreSQL and Redis"
 OUTPUT_DIRECTORY       = docs
 
 # Input configuration

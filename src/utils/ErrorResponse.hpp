@@ -61,9 +61,9 @@ inline drogon::HttpResponsePtr bad_request(std::string code, std::string message
 }
 
 inline drogon::HttpResponsePtr unauthorized(std::string code = "unauthorized", std::string message = "") {
-    // The WWW-Authenticate challenge header is added by the auth middleware
-    // (Api.hpp::register_auth), which has the scheme/error context — keep the
-    // body builder pure here.
+    // Any WWW-Authenticate challenge header is the caller's job — only the
+    // middleware or handler that rejected the request has the scheme/error
+    // context. Keep the body builder pure here.
     return make({drogon::k401Unauthorized, std::move(code), std::move(message), json::object()});
 }
 

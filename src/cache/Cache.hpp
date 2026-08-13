@@ -141,9 +141,11 @@ inline std::unique_ptr<Redis> make_sentinel_client(const std::string& master_nam
  * Error contract: the wrapper methods (get/set/del/exists/expire/ttl/
  * sadd/smembers/zadd/publish/...) are FAIL-OPEN — they swallow
  * sw::redis::Error, log a warning and return a false/empty default, so a
- * Redis outage degrades features instead of failing requests. Callers that
- * need the failure signal must check the RETURN VALUE (see
- * AuthController::mint_session). Two deliberate exceptions: incr()/decr()
+ * Redis outage degrades features instead of failing requests. This is the
+ * cache-aside contract: a miss and a Redis error are indistinguishable to the
+ * caller, so read paths fall through to the authoritative store. A caller that
+ * genuinely needs the failure signal must check the RETURN VALUE rather than
+ * assume success. Two deliberate exceptions: incr()/decr()
  * RETHROW — counters silently stuck at a default would corrupt rate
  * accounting. Direct get_client() calls bypass all of this: wrap them in
  * try/catch yourself.

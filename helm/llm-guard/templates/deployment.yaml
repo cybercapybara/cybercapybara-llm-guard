@@ -193,8 +193,6 @@ spec:
               mountPath: /app/logs
             - name: tmp
               mountPath: /tmp
-            - name: uploads
-              mountPath: /app/uploads
       volumes:
         - name: config
           configMap:
@@ -202,8 +200,6 @@ spec:
         - name: logs
           emptyDir: {}
         - name: tmp
-          emptyDir: {}
-        - name: uploads
           emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:

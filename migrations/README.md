@@ -1,20 +1,29 @@
 # Migrations
 
-Drop numbered `.sql` files here — the template's `MigrationRunner` picks them
-up on boot, applies any that aren't already in `schema_migrations`, and
-records what it did. Naming: `NNN_description.sql` (e.g. `001_users.sql`).
+Drop numbered `.sql` files here — `MigrationRunner` picks them up on boot,
+applies any that aren't already in `schema_migrations`, and records what it
+did. Naming: `NNN_description.sql` (e.g. `001_widgets.sql`).
 
 `docs/CONVENTIONS.md` has the migration conventions in context.
+
+## What ships today
+
+- `000_updated_at_trigger.sql` — the shared `touch_updated_at()` trigger
+  function. Domain-neutral infrastructure: `scripts/new-migration.sh` wires
+  every scaffolded table to it, so it has to be applied first. Don't delete it.
 
 ## Generating a new migration
 
 ```bash
-./scripts/new-migration.sh add_users_table
-# ==> Created migrations/001_add_users_table.sql
+./scripts/new-migration.sh add_widgets
+# ==> Created migrations/001_add_widgets.sql
 ```
 
 The script picks the next free `NNN`, slugifies the description, and writes a
-`BEGIN; ... COMMIT;` skeleton.
+commented table skeleton (id / name / created_at / updated_at plus a
+`touch_updated_at` trigger). It deliberately emits **no** `BEGIN`/`COMMIT` —
+the runner wraps each file in one advisory-locked transaction together with the
+`schema_migrations` bookkeeping, and an embedded `COMMIT` would break that.
 
 ## Ops
 

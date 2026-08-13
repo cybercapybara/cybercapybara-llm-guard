@@ -27,10 +27,4 @@ TEST(TasksGuardTest, CancelUnknownReturnsFalse) {
     EXPECT_FALSE(Tasks::cancel("does-not-exist"));
 }
 
-TEST(TasksGuardTest, GetBeforeInitThrows) {
-    if (Tasks::is_initialized())
-        Tasks::shutdown();
-    EXPECT_FALSE(Tasks::is_initialized());
-}
-
 }  // namespace

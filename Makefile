@@ -1,5 +1,5 @@
-# C++ API Template — Docker Compose shortcuts
-# Usage: make up | make up-full | make down | make test | make logs
+# llm-guard — Docker Compose shortcuts
+# Usage: make up | make up-monitoring | make down | make test | make logs
 
 -include project.env
 PROJECT_NAME ?= llm-guard
@@ -26,7 +26,7 @@ UPSTREAM_GHCR ?= ghcr.io/cybercapybara/llm-guard
 COMPOSE_BIN := $(shell docker compose version >/dev/null 2>&1 && echo docker compose || echo docker-compose)
 COMPOSE := $(COMPOSE_BIN) -f docker/docker-compose.yml
 # Every optional profile — for targets that must see the WHOLE stack
-# (down/ps/up-everything). Keep in sync with docker-compose.yml profiles.
+# (down/ps/up-build). Keep in sync with docker-compose.yml profiles.
 ALL_PROFILES := --profile with-monitoring
 ENV     := --env-file docker/.env
 
@@ -36,7 +36,7 @@ ENV     := --env-file docker/.env
         watch coverage \
         logs logs-pretty tail-trace ps health routes doctor env-check prod-check \
         psql redis-cli redis-flush migrate migrate-local migrate-status migrate-reset \
-        new-endpoint new-migration ci-local helm-lint helm-validate \
+        new-endpoint new-migration init ci-local helm-lint helm-validate \
         bench bench-all image push \
         fmt lint-format lint-format-fix lint tidy lint-openapi \
         smoke clean clean-logs clean-docs clean-build dist-clean \

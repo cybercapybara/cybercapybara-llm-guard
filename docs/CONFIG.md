@@ -73,6 +73,7 @@ profile).
 | `DB_RETRY_BASE_DELAY_MS` | `database.retry.base_delay_ms` | int | `100` | |
 | `DB_RETRY_MAX_DELAY_MS` | `database.retry.max_delay_ms` | int | `2000` | |
 | `DB_RETRY_JITTER` | `database.retry.jitter` | bool | `true` | Full-jitter backoff |
+| `DB_REPLICA_LAG_METRIC_REFRESH_SEC` | `database.replica_lag_metric_refresh_sec` | int | `15` | Refresh interval for the `db_replica_lag_seconds` gauge. Only registered when read replicas are configured (primary has no replay timestamp). |
 
 For individual Postgres URL components used by the sample config:
 `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`.
