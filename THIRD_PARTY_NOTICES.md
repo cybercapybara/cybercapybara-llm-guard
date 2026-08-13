@@ -22,6 +22,8 @@ and the OS package docs under `/usr/share/doc/*/copyright` in the runtime image.
 | prometheus-cpp | MIT |
 | opentelemetry-cpp | Apache-2.0 † |
 | nlohmann/json | MIT |
+| re2 | BSD-3-Clause (added in bootstrap; enters `vcpkg.json` in the next task) |
+| yaml-cpp | MIT (added in bootstrap; enters `vcpkg.json` in the next task) |
 | GoogleTest | BSD-3-Clause (tests only — not shipped in runtime images) |
 
 ## Runtime — system libraries (apt, present in the runtime image)
@@ -39,3 +41,26 @@ and the OS package docs under `/usr/share/doc/*/copyright` in the runtime image.
 be reproduced in distributions. Before shipping images publicly/commercially,
 copy each project's `NOTICE` into the image (e.g. under `/app/NOTICES/`) and
 append its contents here.
+
+## Rule catalogs (ported content, not a linked dependency)
+
+`configs/rules.yaml` and `configs/rules.gitleaks.generated.yaml` are ported
+from [guardrails-llm-filter](https://github.com/cloud-ru-tech/guardrails-llm-filter)
+(Copyright Cloud.ru), licensed under the Apache License, Version 2.0. A copy
+of the Apache-2.0 license text is available at
+<https://www.apache.org/licenses/LICENSE-2.0>; per-file provenance headers
+are also carried at the top of each catalog. See [NOTICE](NOTICE) for the
+required Apache-2.0 attribution notice.
+
+`configs/rules.gitleaks.generated.yaml` is additionally derived from
+[gitleaks](https://github.com/gitleaks/gitleaks) (Copyright Zachary Rice),
+licensed under the MIT License; `configs/gitleaks.toml` is gitleaks' own
+default configuration, carried under the same MIT License. The MIT license
+text is reproduced in this repository's own [LICENSE](LICENSE) file.
+
+## Historic note
+
+Git history prior to the demo-domain strip (Task 0.3) contains code derived
+from [flask-base](https://github.com/hack4impact/flask-base) (MIT); that code
+has since been removed from the working tree but remains attributed here for
+anyone auditing history.
