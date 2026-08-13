@@ -92,6 +92,8 @@ find_package(spdlog CONFIG REQUIRED)
 find_package(prometheus-cpp CONFIG REQUIRED)
 find_package(opentelemetry-cpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(re2 CONFIG REQUIRED)      # linear-time regex engine for the detection rules
+find_package(yaml-cpp CONFIG REQUIRED) # rule-catalog parsing (configs/*.yaml)
 find_package(GTest CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)  # HMAC-SHA256 / SHA-256 / CSPRNG in Utils::Crypto
@@ -128,6 +130,8 @@ set(COMMON_LIBS
     opentelemetry-cpp::ostream_span_exporter
     opentelemetry-cpp::otlp_http_exporter
     nlohmann_json::nlohmann_json
+    re2::re2
+    yaml-cpp::yaml-cpp
     OpenSSL::Crypto
     CURL::libcurl
     Threads::Threads
@@ -209,6 +213,11 @@ if(UNIT_SOURCES)
         ${CMAKE_SOURCE_DIR}/tests
     )
     target_precompile_headers(${PROJECT_NAME}_tests_unit PRIVATE ${HEAVY_PCH} <gtest/gtest.h>)
+
+    # Unit tests load rule catalogs / fixtures from the source tree by absolute
+    # path — the binary can run from any working directory.
+    target_compile_definitions(${PROJECT_NAME}_tests_unit PRIVATE
+        LLMGUARD_REPO_ROOT="${CMAKE_SOURCE_DIR}")
 
     # Per-test discovery for `ctest -R SomeSuite.someCase`.
     gtest_discover_tests(${PROJECT_NAME}_tests_unit

@@ -14,6 +14,8 @@
       "features": ["otlp-http"]
     },
     "nlohmann-json",
+    "re2",
+    "yaml-cpp",
     "gtest"
   ],
   "$comment": "libcurl comes from the OS (apt: libcurl4-openssl-dev) rather than a vcpkg port — keeps the docker build green on x86_64 and arm64.",
