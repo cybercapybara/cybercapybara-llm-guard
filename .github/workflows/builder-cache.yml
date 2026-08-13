@@ -5,7 +5,7 @@ name: builder-cache
 
 on:
   push:
-    branches: [master]
+    branches: [master, main]
     paths:
       - vcpkg.json
       - docker/Dockerfile
