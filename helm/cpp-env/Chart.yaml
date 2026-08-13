@@ -1,0 +1,18 @@
+apiVersion: v2
+name: cpp-env
+description: >-
+  One-namespace ephemeral test environment: llm-guard wired to a per-env
+  CloudNativePG cluster (rw/ro), Redis Sentinel and an optional Jaeger —
+  auto-configured, with *.<env>.example.com ingress.
+type: application
+version: 0.1.0
+appVersion: "1.4.0"
+maintainers:
+  - name: llm-guard-team
+# Subcharts are wired entirely from this chart's values (fixed in-namespace
+# service names + per-env domain). Infra (Postgres/Redis/Jaeger) is templated
+# here, so no external chart repos are needed.
+dependencies:
+  - name: llm-guard
+    version: "0.1.0"
+    repository: "file://../llm-guard"

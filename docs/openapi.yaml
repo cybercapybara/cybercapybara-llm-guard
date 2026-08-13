@@ -1,0 +1,107 @@
+openapi: 3.1.0
+info:
+  title: llm-guard API
+  description: |
+    Infrastructure endpoints for llm-guard: endpoint discovery and the
+    Kubernetes health probes. The masking-proxy surface is added in a later
+    phase — every new route must appear here, in a controller's
+    ADD_METHOD_TO, and in Api::get_endpoints() (CI enforces the triple-sync).
+  version: 1.0.0
+  contact:
+    name: Platform team
+servers:
+  - url: http://localhost:8080
+    description: Local dev
+  - url: https://api.example.com
+    description: Production
+
+components:
+  parameters:
+    Traceparent:
+      name: traceparent
+      in: header
+      required: false
+      description: W3C Trace Context header.
+      schema:
+        type: string
+        pattern: '^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$'
+
+  schemas:
+    # The one error shape — ErrorResponse::* / Api::Validation::* emit this.
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        message: { type: string }
+        code: { type: string }
+
+    ValidationError:
+      type: object
+      required: [error, errors]
+      properties:
+        error:
+          type: string
+          enum: [validation_failed]
+        errors:
+          type: array
+          items:
+            type: object
+            required: [field, code, message]
+            properties:
+              field: { type: string }
+              code: { type: string }
+              message: { type: string }
+
+    # Generic "{message: ...}" envelope.
+    MessageResponse:
+      type: object
+      properties:
+        message: { type: string }
+
+# -----------------------------------------------------------------------------
+paths:
+  /:
+    get:
+      summary: Endpoint discovery — list every registered route
+      tags: [health]
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  version: { type: string }
+                  endpoints:
+                    type: array
+                    items:
+                      type: object
+                      required: [method, path, description]
+                      properties:
+                        method: { type: string }
+                        path: { type: string }
+                        description: { type: string }
+  /healthz:
+    get:
+      summary: Liveness probe
+      tags: [health]
+      responses:
+        '200':
+          description: Process is alive
+  /ready:
+    get:
+      summary: Readiness probe
+      tags: [health]
+      responses:
+        '200': { description: Ready }
+        '503': { description: Draining or dependency unhealthy }
+  /health:
+    get:
+      summary: Detailed component health
+      tags: [health]
+      responses:
+        '200': { description: All components healthy }
+        '503': { description: One or more components unhealthy }

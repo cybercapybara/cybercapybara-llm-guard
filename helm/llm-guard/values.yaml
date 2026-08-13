@@ -1,0 +1,308 @@
+# ---------------------------------------------------------------
+# Deployment — number of pod replicas and container image settings
+# ---------------------------------------------------------------
+replicaCount: 1
+
+image:
+  repository: ghcr.io/cybercapybara/llm-guard
+  tag: ""  # Defaults to chart appVersion
+  pullPolicy: IfNotPresent
+
+# List of Kubernetes secrets for pulling from private registries
+imagePullSecrets: []
+# Override the generated resource names (leave empty to use chart defaults)
+nameOverride: ""
+fullnameOverride: ""
+
+# ---------------------------------------------------------------
+# Networking — Kubernetes Service and Ingress
+# ---------------------------------------------------------------
+service:
+  type: ClusterIP          # ClusterIP | NodePort | LoadBalancer
+  httpPort: 8080           # Main API port (matches SERVER_PORT)
+  metricsPort: 9090        # Prometheus metrics port (matches METRICS_ADDRESS)
+
+ingress:
+  enabled: false
+  className: ""            # e.g. "nginx", "traefik"
+  annotations: {}          # Free-form extra annotations
+  # cert-manager convenience — set one of clusterIssuer/issuer, the template
+  # will render the matching annotation automatically. Leave both empty if
+  # you're using something other than cert-manager (or managing TLS manually).
+  certManager:
+    clusterIssuer: ""      # e.g. "letsencrypt-prod"
+    issuer: ""             # namespaced Issuer name (mutually exclusive with clusterIssuer)
+  hosts:
+    - host: llm-guard.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+  # Full cert-manager example — cert-manager watches this Secret name and
+  # populates it from the ClusterIssuer above. Uncomment and set both.
+  #   certManager.clusterIssuer: letsencrypt-prod
+  #   tls:
+  #     - secretName: llm-guard-tls
+  #       hosts:
+  #         - api.example.com
+
+# ---------------------------------------------------------------
+# Resource requests/limits and scaling
+# ---------------------------------------------------------------
+# Starting point — MEASURE under your own load. A Drogon app with libpqxx +
+# redis++ connection pools under traffic can exceed 256Mi and get OOMKilled;
+# these defaults err on the safe side. Tune requests to your steady state and
+# limits to your peak.
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+
+# Horizontal Pod Autoscaler — requires metrics-server in the cluster
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  # targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget — ensures minimum available pods during voluntary disruptions
+pdb:
+  enabled: false
+  minAvailable: 1
+
+# ---------------------------------------------------------------
+# Network policy — restrict ingress/egress when enabled.
+#
+# Template ships with `enabled: false` because the selectors below hardcode
+# namespace names (ingress-nginx, monitoring, db) that vary per cluster.
+# Before flipping to true in production:
+#   1. Confirm your ingress-controller namespace and update fromSelectors.
+#   2. Confirm where Postgres/Redis live; list egress targets by
+#      podSelector or namespaceSelector (not CIDR — it ties the manifest
+#      to a single environment).
+#   3. Test in a staging namespace first — a wrong NetworkPolicy silently
+#      blackholes traffic.
+# ---------------------------------------------------------------
+networkPolicy:
+  enabled: false
+  ingress:
+    fromSelectors:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: ingress-nginx
+    metricsFromSelectors:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: monitoring
+  egress:
+    extra:
+      # Allow egress to Postgres and Redis by namespace/podSelector as appropriate.
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: db
+        ports:
+          - port: 5432
+            protocol: TCP
+          - port: 6379
+            protocol: TCP
+          - port: 26379
+            protocol: TCP
+
+# ---------------------------------------------------------------
+# Prometheus ServiceMonitor (requires prometheus-operator CRDs)
+# ---------------------------------------------------------------
+serviceMonitor:
+  enabled: false           # Set to true if Prometheus Operator is installed
+  interval: 30s            # Scrape interval
+  path: /metrics           # Metrics endpoint path on metricsPort
+
+# ---------------------------------------------------------------
+# Alerting — PrometheusRule objects with baseline SLO alerts.
+# Requires prometheus-operator CRDs (alertsEnabled=true to render).
+# Tune thresholds per service; these defaults are deliberately tight so
+# "the template shipped without alerts" never happens.
+# ---------------------------------------------------------------
+monitoring:
+  alertsEnabled: false
+  alertLabels: {}           # Extra labels applied to every rule (e.g. team)
+  # Selector used on every PromQL expression. Must match how your cluster's
+  # ServiceMonitor / scrape relabel config labels targets. Common shapes:
+  #   prometheus-operator default →  job="{namespace}/{service}/{port}"
+  #                                  → set targetSelector: "namespace=\"my-ns\", service=\"{fullname}\""
+  #   simple ServiceMonitor        →  job="{service}"
+  #                                  → set targetSelector: "job=\"{fullname}\""
+  # Default picks service="{fullname}" which works if you keep the label in
+  # relabel_configs. If in doubt, open Prometheus → Targets and look at the
+  # actual label set on your pod.
+  targetSelector: ""
+  thresholds:
+    errorRate: 0.01                 # Fraction of 5xx allowed (1 %)
+    latencyP99Sec: 1                # p99 seconds
+    dbPoolSaturation: 0.9           # db_pool_active/size ratio above this warns (90 %)
+    replicaLagSec: 10               # read-replica lag (s) above this warns
+    retriesExhaustedPerSec: 0.5     # sustained "gave up" retries per second
+
+# ---------------------------------------------------------------
+# External Secrets Operator — pull secrets from Vault / AWS SSM / GCP SM
+# instead of inlining them in values. When enabled, the static Secret
+# rendered by templates/secret.yaml is suppressed and the Deployment
+# consumes the ExternalSecret-materialized Secret instead.
+# ---------------------------------------------------------------
+externalSecrets:
+  enabled: false
+  refreshInterval: "1h"
+  secretStoreRef:
+    name: ""                  # cluster's SecretStore / ClusterSecretStore name
+    kind: ClusterSecretStore  # or SecretStore (namespaced)
+  data: []
+    # - secretKey: database-password
+    #   remoteRef: { key: prod/app/db, property: password }
+    # - secretKey: redis-password
+    #   remoteRef: { key: prod/app/redis, property: password }
+
+# ---------------------------------------------------------------
+# External PostgreSQL connection
+# Env vars set: DATABASE_PRIMARY_URL, DATABASE_REPLICA_URLS,
+#               DB_POOL_SIZE, DB_MIGRATIONS_ENABLED
+# ---------------------------------------------------------------
+externalDatabase:
+  host: postgres.example.svc.cluster.local
+  port: 5432
+  name: appdb
+  user: appuser
+  password: ""  # Set via --set or external secret
+  poolSize: 10
+  replicaHost: ""  # e.g. postgres-ro.example.svc.cluster.local — leave empty to disable replicas
+  # Run migrations in the main container on startup.
+  # Prefer false + migrations.runAsInitContainer=true to avoid every replica
+  # racing to apply migrations at rollout time.
+  migrationsEnabled: false
+
+# ---------------------------------------------------------------
+# Schema migrations — run as an init container so only one pod per rollout
+# applies migrations, rather than every replica racing at startup.
+# ---------------------------------------------------------------
+migrations:
+  runAsInitContainer: true
+
+# ---------------------------------------------------------------
+# External Redis / Sentinel connection
+# Env vars set: REDIS_URL, REDIS_PASSWORD, REDIS_USE_SENTINEL,
+#               REDIS_MASTER_NAME, REDIS_SENTINEL_NODES, CACHE_POOL_SIZE
+# ---------------------------------------------------------------
+externalRedis:
+  url: "tcp://redis.example.svc.cluster.local:6379"  # Fallback if sentinel disabled
+  password: ""  # Set via --set or external secret
+  useSentinel: true                                  # Enable Sentinel HA mode
+  masterName: mymaster                               # Sentinel master name
+  # Comma-separated list of sentinel host:port. Adjust to your cluster's
+  # sentinel service.
+  sentinelNodes: "redis-node-0.redis-headless.example.svc.cluster.local:26379,redis-node-1.redis-headless.example.svc.cluster.local:26379,redis-node-2.redis-headless.example.svc.cluster.local:26379"
+  poolSize: 10
+
+# ---------------------------------------------------------------
+# Application configuration
+# Env vars set: LOG_LEVEL, LOG_NAME, SERVICE_NAME, SERVER_THREADS
+# ---------------------------------------------------------------
+logging:
+  level: info              # trace | debug | info | warn | error | critical
+  name: llm_guard            # Logger name (LOG_NAME)
+  format: json             # text | json (LOG_FORMAT) — json required for log aggregators
+  serviceName: llm_guard_service  # OpenTelemetry service name (SERVICE_NAME)
+
+server:
+  threads: 4               # Drogon event-loop threads (SERVER_THREADS)
+
+# ---------------------------------------------------------------
+# Application identity
+# Env vars set: APP_ENV
+# ---------------------------------------------------------------
+app:
+  env: production      # APP_ENV — arms the boot-time prod-safety warnings
+
+# ---------------------------------------------------------------
+# Graceful shutdown
+#   terminationGracePeriodSeconds — total time kubelet waits before SIGKILL.
+#                                   Must cover preStopDelay + in-flight work.
+#   preStopDelay                  — sleep in preStop hook before SIGTERM is sent,
+#                                   giving endpoints controller time to remove
+#                                   the pod from Service backends.
+#   shutdownPreStopDelaySec       — additional in-process drain the app performs
+#                                   between "readiness=503" and "stop accepting"
+#                                   (passed through to SHUTDOWN_PRE_STOP_DELAY_SEC).
+# ---------------------------------------------------------------
+shutdown:
+  terminationGracePeriodSeconds: 30
+  preStopDelay: 5           # seconds
+  shutdownPreStopDelaySec: 5 # seconds
+
+# ---------------------------------------------------------------
+# Startup probe — guards the cold start of the C++ binary (and, when the
+# migrate init-container is disabled, in-process migrations) so the liveness
+# probe doesn't begin counting failures until the process is actually up.
+# failureThreshold * periodSeconds bounds the allowed startup window
+# (default 30 * 5s = 150s). Hits the same /healthz endpoint as liveness.
+# ---------------------------------------------------------------
+startupProbe:
+  enabled: true
+  path: /healthz
+  failureThreshold: 30
+  periodSeconds: 5
+  timeoutSeconds: 3
+
+# ---------------------------------------------------------------
+# Tracing — OpenTelemetry OTLP exporter
+# Env var set: OTLP_ENDPOINT
+# ---------------------------------------------------------------
+tracing:
+  enabled: false
+  otlpEndpoint: ""  # e.g. "http://jaeger-collector.observability:4318/v1/traces"
+
+# ---------------------------------------------------------------
+# Pod scheduling — annotations, node selection, tolerations, affinity
+# ---------------------------------------------------------------
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# ---------------------------------------------------------------
+# Postgres logical backup (pg_dump → S3-compatible storage)
+# Off by default. STARTER-grade: fine to a few GB; past that move to
+# pgBackRest / WAL-G for incremental + PITR. Restore is manual — see
+# docs/RUNBOOK.md. Rendered by templates/backup-cronjob.yaml.
+# ---------------------------------------------------------------
+backup:
+  enabled: false
+  schedule: "0 2 * * *"        # daily 02:00 UTC
+  # REQUIRED: an image with BOTH `pg_dump` and the `aws` CLI on PATH — the job
+  # runs read-only-rootfs as non-root, so installing tools at runtime is NOT an
+  # option. postgres:16-alpine ships pg_dump but NOT aws; amazon/aws-cli ships
+  # aws but NOT pg_dump — either alone fails silently. Build a tiny image that
+  # bundles both (postgres-client + aws-cli) and set backup.image to it before
+  # enabling. The postgres:16-alpine default below covers the pg_dump half so
+  # `helm template` renders; override it for a working backup.
+  image: postgres:16-alpine
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 3
+  activeDeadlineSeconds: 3600
+  dbPasswordSecret:
+    name: ""   # defaults to the chart's secret; set when using ExternalSecrets
+    key: database-password
+  s3:
+    bucket: ""                 # REQUIRED when enabled
+    prefix: "llm-guard/"
+    region: ""
+    endpoint: ""               # set for MinIO / non-AWS S3
+    credentialsSecret:
+      name: ""                 # secret holding access-key-id / secret-access-key
+      accessKeyIdKey: access-key-id
+      secretAccessKeyKey: secret-access-key
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: 500m, memory: 256Mi }

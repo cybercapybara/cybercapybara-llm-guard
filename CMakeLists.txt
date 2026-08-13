@@ -1,0 +1,296 @@
+cmake_minimum_required(VERSION 3.21)
+project(llm_guard VERSION 1.4.0 LANGUAGES CXX)
+
+# Set C++20 standard
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# Build type
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# Compiler flags. Base set is intentionally strict — extra warnings catch
+# real bugs (shadowing, unsafe casts, narrowing, format mismatches) without
+# adding false-positive noise on a modern GCC/Clang. Toggle ENABLE_WERROR
+# (default OFF) for CI gates; locally we don't want a warning to block work.
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG -fno-omit-frame-pointer")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+
+add_compile_options(
+    -Wshadow
+    -Wnon-virtual-dtor
+    -Wold-style-cast
+    -Wcast-align
+    -Woverloaded-virtual
+    -Wnull-dereference
+    -Wdouble-promotion
+    -Wformat=2
+)
+
+option(ENABLE_WERROR "Treat warnings as errors (intended for CI)" OFF)
+if(ENABLE_WERROR)
+    # Two GCC middle-end diagnostics stay warnings instead of errors: at -O3
+    # they fire from inlined third-party internals (nlohmann::json via the
+    # PCH, std::variant inside pqxx::params) and escape -isystem suppression
+    # because the optimizer attributes them to the system-header location —
+    # a known false-positive class we can't fix in third-party code.
+    add_compile_options(-Werror -Wno-error=null-dereference -Wno-error=maybe-uninitialized)
+endif()
+
+# Sanitizer support — when ENABLE_SANITIZERS=ON, build with ASan+UBSan
+# (Debug build recommended). Intended for CI and local bug-hunting; do not
+# ship to production. Enforces strict mode (no suppressions, abort on fault).
+option(ENABLE_SANITIZERS "Build with AddressSanitizer + UndefinedBehaviorSanitizer" OFF)
+if(ENABLE_SANITIZERS)
+    message(STATUS "Sanitizers enabled: address + undefined")
+    add_compile_options(
+        -fsanitize=address,undefined
+        -fno-omit-frame-pointer
+        -fno-sanitize-recover=all
+        -O1
+        -g)
+    add_link_options(-fsanitize=address,undefined)
+endif()
+
+# ThreadSanitizer — mutually exclusive with ASan/UBSan (they can't share a
+# process). Used by the CI `tsan` job over the unit-test bucket.
+option(ENABLE_TSAN "Build with ThreadSanitizer" OFF)
+if(ENABLE_TSAN)
+    if(ENABLE_SANITIZERS)
+        message(FATAL_ERROR "ENABLE_TSAN and ENABLE_SANITIZERS are mutually exclusive")
+    endif()
+    message(STATUS "Sanitizer enabled: thread")
+    add_compile_options(
+        -fsanitize=thread
+        -fno-omit-frame-pointer
+        -O1
+        -g)
+    add_link_options(-fsanitize=thread)
+endif()
+
+# Coverage instrumentation — enables gcov-compatible counters across the
+# whole project so `make coverage` (gcovr/lcov) can produce an HTML report.
+# Implies Debug-ish build (no -O3, with -g). Use the `coverage` preset.
+option(ENABLE_COVERAGE "Build with gcov coverage instrumentation" OFF)
+if(ENABLE_COVERAGE)
+    message(STATUS "Coverage enabled (--coverage)")
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+endif()
+
+# Find required packages
+find_package(Drogon CONFIG REQUIRED)
+find_package(libpqxx CONFIG REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(HIREDIS REQUIRED IMPORTED_TARGET hiredis)
+pkg_check_modules(REDIS_PLUS_PLUS REQUIRED IMPORTED_TARGET redis++)
+pkg_check_modules(UUID REQUIRED IMPORTED_TARGET uuid)
+find_package(spdlog CONFIG REQUIRED)
+find_package(prometheus-cpp CONFIG REQUIRED)
+find_package(opentelemetry-cpp CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
+find_package(re2 CONFIG REQUIRED)      # linear-time regex engine for the detection rules
+find_package(yaml-cpp CONFIG REQUIRED) # rule-catalog parsing (configs/*.yaml)
+find_package(GTest CONFIG REQUIRED)
+find_package(Threads REQUIRED)
+find_package(OpenSSL REQUIRED)  # HMAC-SHA256 / SHA-256 / CSPRNG in Utils::Crypto
+# libcurl from the OS for the outbound HTTP client the proxy needs. We use the
+# upstream FindCURL module (not CONFIG) so this works against the
+# apt-installed package — no vcpkg curl port needed.
+find_package(CURL REQUIRED)
+
+# Single source of the version: project(VERSION ...) above renders into
+# generated/version.hpp; Core::version() includes it. Bump the version in
+# project() only.
+configure_file(src/version.hpp.in ${CMAKE_BINARY_DIR}/generated/version.hpp @ONLY)
+
+# Include directories
+include_directories(
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+
+# Shared link libraries (used by the main app and the test binaries)
+set(COMMON_LIBS
+    Drogon::Drogon
+    libpqxx::pqxx
+    PkgConfig::HIREDIS
+    PkgConfig::REDIS_PLUS_PLUS
+    PkgConfig::UUID
+    spdlog::spdlog
+    prometheus-cpp::core
+    prometheus-cpp::pull
+    opentelemetry-cpp::api
+    opentelemetry-cpp::sdk
+    opentelemetry-cpp::trace
+    opentelemetry-cpp::metrics
+    opentelemetry-cpp::ostream_span_exporter
+    opentelemetry-cpp::otlp_http_exporter
+    nlohmann_json::nlohmann_json
+    re2::re2
+    yaml-cpp::yaml-cpp
+    OpenSSL::Crypto
+    CURL::libcurl
+    Threads::Threads
+)
+
+# ── app_core ─────────────────────────────────────────────────────────────────
+# The single named seam every binary (server, tests) builds against:
+# it carries the shared third-party deps + the src/generated include dirs, so a
+# new dependency is added in ONE place and every target picks it up.
+#
+# It is an INTERFACE library today because the application code is still
+# header-only/inline — there is nothing to compile ONCE yet. The next step
+# toward a true compiled core (faster incremental builds, the prerequisite the
+# deferred multi-arch/ASan matrices were waiting on) is to de-inline modules
+# into app_core's own sources (declaration in .hpp, definition in a .cpp added
+# here via target_sources), turning this into a STATIC library. That is a large,
+# mechanical, build-touching change across ~60 headers — kept as a deliberate
+# follow-up so it can't destabilise the build mid-stream; the HEAVY_PCH below
+# already absorbs most of the per-TU third-party parse cost in the meantime.
+add_library(app_core INTERFACE)
+target_link_libraries(app_core INTERFACE ${COMMON_LIBS})
+target_include_directories(app_core INTERFACE
+    ${CMAKE_SOURCE_DIR}/src
+    ${CMAKE_BINARY_DIR}/generated
+)
+
+# Precompiled headers: the framework headers below dominate compile time in
+# a header-only codebase (every TU re-parses Drogon + pqxx + redis++ + json).
+# Tests/e2e reuse the same PCH where flags allow.
+set(HEAVY_PCH
+    <drogon/drogon.h>
+    <drogon/HttpController.h>
+    <pqxx/pqxx>
+    <sw/redis++/redis++.h>
+    <nlohmann/json.hpp>
+    <spdlog/spdlog.h>
+)
+
+# Compile definitions shared by ALL THREE test binaries. They must be identical
+# across the targets because integration/e2e reuse the unit target's PCH
+# (REUSE_FROM below): GCC validates that a .gch was built with the same -D set
+# as the TU including it, and rejects it otherwise — which under -Werror
+# surfaces as `-Werror=invalid-pch`, not as a silent slow rebuild. Add a test
+# define here, never on a single test target.
+#
+# LLMGUARD_REPO_ROOT lets a test resolve rule catalogs / fixtures in the source
+# tree by absolute path, so the binaries run from any working directory.
+set(TEST_COMPILE_DEFS LLMGUARD_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+
+# Create main executable
+add_executable(${PROJECT_NAME}
+    src/main.cpp
+)
+target_link_libraries(${PROJECT_NAME} PRIVATE app_core)
+target_precompile_headers(${PROJECT_NAME} PRIVATE ${HEAVY_PCH})
+
+# Enable testing
+enable_testing()
+include(GoogleTest)
+
+# Test source classification by DIRECTORY — the only source of truth.
+# Adding a new suite that needs Postgres/Redis: drop it in tests/integration/.
+# Adding a pure unit suite: drop it in tests/unit/.
+# No name-based filter list to keep in sync anywhere.
+#
+# tests/test_main.cpp — shared GlobalTestEnvironment (SetUp/TearDown only),
+#   compiled into both binaries below.
+# tests/unit/       — no external services; fast, always runnable.
+# tests/integration/ + tests/api/ — need Postgres + Redis.
+# tests/e2e/        — separate binary: owns drogon::app() run()/quit() cycle.
+file(GLOB UNIT_SOURCES       CONFIGURE_DEPENDS "tests/unit/*.cpp")
+file(GLOB INTEGRATION_SOURCES CONFIGURE_DEPENDS "tests/integration/*.cpp" "tests/api/*.cpp")
+file(GLOB E2E_SOURCES        CONFIGURE_DEPENDS "tests/e2e/*.cpp")
+set(TEST_MAIN_SOURCE "tests/test_main.cpp")
+
+# ── Unit test binary ────────────────────────────────────────────────────────
+# No Postgres/Redis needed. `ctest -L unit` or run the binary directly.
+if(UNIT_SOURCES)
+    add_executable(${PROJECT_NAME}_tests_unit
+        ${TEST_MAIN_SOURCE}
+        ${UNIT_SOURCES}
+    )
+    target_link_libraries(${PROJECT_NAME}_tests_unit PRIVATE
+        GTest::gtest
+        GTest::gmock
+        app_core
+    )
+    target_include_directories(${PROJECT_NAME}_tests_unit PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests
+    )
+    target_compile_definitions(${PROJECT_NAME}_tests_unit PRIVATE ${TEST_COMPILE_DEFS})
+    target_precompile_headers(${PROJECT_NAME}_tests_unit PRIVATE ${HEAVY_PCH} <gtest/gtest.h>)
+
+    # Per-test discovery for `ctest -R SomeSuite.someCase`.
+    gtest_discover_tests(${PROJECT_NAME}_tests_unit
+        PROPERTIES LABELS "unit"
+    )
+    # Aggregate entry: `ctest -L unit` runs the whole binary in one shot.
+    add_test(NAME unit_bucket
+        COMMAND ${PROJECT_NAME}_tests_unit --gtest_color=yes)
+    set_tests_properties(unit_bucket PROPERTIES LABELS "unit")
+endif()
+
+# ── Integration test binary ─────────────────────────────────────────────────
+# Needs Postgres + Redis. `ctest -L integration` or run the binary directly.
+if(INTEGRATION_SOURCES)
+    add_executable(${PROJECT_NAME}_tests_integration
+        ${TEST_MAIN_SOURCE}
+        ${INTEGRATION_SOURCES}
+    )
+    target_link_libraries(${PROJECT_NAME}_tests_integration PRIVATE
+        GTest::gtest
+        GTest::gmock
+        app_core
+    )
+    target_include_directories(${PROJECT_NAME}_tests_integration PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests
+    )
+    # Must match the unit target's defines exactly — the PCH is reused below.
+    target_compile_definitions(${PROJECT_NAME}_tests_integration PRIVATE ${TEST_COMPILE_DEFS})
+    target_precompile_headers(${PROJECT_NAME}_tests_integration REUSE_FROM ${PROJECT_NAME}_tests_unit)
+
+    gtest_discover_tests(${PROJECT_NAME}_tests_integration
+        PROPERTIES LABELS "integration"
+    )
+    add_test(NAME integration_bucket
+        COMMAND ${PROJECT_NAME}_tests_integration --gtest_color=yes)
+    set_tests_properties(integration_bucket PROPERTIES LABELS "integration")
+endif()
+
+# ── End-to-end binary ───────────────────────────────────────────────────────
+# Real Drogon server + real HTTP client. Separate from the main test binaries
+# because drogon::app() is once-per-process.
+if(E2E_SOURCES)
+    add_executable(${PROJECT_NAME}_e2e ${E2E_SOURCES})
+    target_link_libraries(${PROJECT_NAME}_e2e PRIVATE
+        GTest::gtest
+        app_core
+    )
+    target_include_directories(${PROJECT_NAME}_e2e PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+        ${CMAKE_SOURCE_DIR}/tests
+    )
+    # Must match the unit target's defines exactly — the PCH is reused below.
+    target_compile_definitions(${PROJECT_NAME}_e2e PRIVATE ${TEST_COMPILE_DEFS})
+    target_precompile_headers(${PROJECT_NAME}_e2e REUSE_FROM ${PROJECT_NAME}_tests_unit)
+    add_test(NAME e2e_bucket COMMAND ${PROJECT_NAME}_e2e --gtest_color=yes)
+    set_tests_properties(e2e_bucket PROPERTIES LABELS "e2e")
+endif()
+
+# Installation
+install(TARGETS ${PROJECT_NAME}
+    RUNTIME DESTINATION bin
+)
+
+# Copy config files
+install(DIRECTORY config/
+    DESTINATION etc/${PROJECT_NAME}
+    FILES_MATCHING PATTERN "*.json"
+)

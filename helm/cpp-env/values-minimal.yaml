@@ -1,0 +1,19 @@
+# Lighter preset for the cpp-env umbrella — the "I just want it running" path.
+# Drops the optional heavy services (Jaeger/OTel) and the Postgres read replica,
+# leaving: api + Postgres(single) + Redis.
+#
+# Layer it on top of the per-env --set flags:
+#   helm upgrade --install <env> helm/cpp-env -n <ns> \
+#     -f helm/cpp-env/values-minimal.yaml \
+#     --set env=<env> --set baseDomain=<domain> --set llm-guard.image.tag=<sha>
+#
+# NOT a security/prod config — credentials are still TEST defaults. Redis still
+# runs as Sentinel (true single-node Redis templating is a follow-up). For
+# zero-operator LOCAL dev use `make up` instead.
+jaeger:
+  enabled: false
+postgres:
+  instances: 1 # single primary, no read replica
+llm-guard:
+  tracing:
+    enabled: false # no Jaeger to export to

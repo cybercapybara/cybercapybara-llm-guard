@@ -1,0 +1,6 @@
+dependencies:
+- name: llm-guard
+  repository: file://../llm-guard
+  version: 0.1.0
+digest: sha256:a047430b6bd30f91be7bfea21726fdd05874c0689718769f0dd29b323999c4a5
+generated: "2026-08-14T02:08:38.748033+05:00"

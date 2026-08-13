@@ -1,0 +1,61 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "llm-guard.fullname" . }}
+  labels:
+    {{- include "llm-guard.labels" . | nindent 4 }}
+data:
+  # NOTE: secrets (DB / Redis passwords) are NOT inlined here — a ConfigMap is
+  # world-readable in the cluster. The app expands ${DATABASE_PASSWORD} /
+  # ${REDIS_PASSWORD} at startup from env vars the Deployment injects via
+  # secretKeyRef (see deployment.yaml / templates/secret.yaml).
+  config.json: |
+    {
+      "app": {
+        "env": {{ .Values.app.env | quote }}
+      },
+      "server": {
+        "host": "0.0.0.0",
+        "port": {{ .Values.service.httpPort }},
+        "threads": {{ .Values.server.threads }}
+      },
+      "logging": {
+        "name": {{ .Values.logging.name | quote }},
+        "file": "logs/app.log",
+        "level": {{ .Values.logging.level | quote }},
+        "format": {{ .Values.logging.format | quote }}
+      },
+      "observability": {
+        "metrics_address": "0.0.0.0:{{ .Values.service.metricsPort }}",
+        "service_name": {{ .Values.logging.serviceName | quote }},
+        "otlp_endpoint": {{ if .Values.tracing.enabled }}{{ .Values.tracing.otlpEndpoint | quote }}{{ else }}""{{ end }}
+      },
+      "database": {
+        "primary": "postgresql://{{ .Values.externalDatabase.user }}:${DATABASE_PASSWORD}@{{ .Values.externalDatabase.host }}:{{ .Values.externalDatabase.port }}/{{ .Values.externalDatabase.name }}",
+        "replicas": [
+          {{- if .Values.externalDatabase.replicaHost }}
+          "postgresql://{{ .Values.externalDatabase.user }}:${DATABASE_PASSWORD}@{{ .Values.externalDatabase.replicaHost }}:{{ .Values.externalDatabase.port }}/{{ .Values.externalDatabase.name }}"
+          {{- end }}
+        ],
+        "pool_size": {{ .Values.externalDatabase.poolSize }}
+      },
+      "cache": {
+        "use_sentinel": {{ .Values.externalRedis.useSentinel }},
+        "url": {{ .Values.externalRedis.url | quote }},
+        "password": "${REDIS_PASSWORD:-}",
+        "pool_size": {{ .Values.externalRedis.poolSize }},
+        "sentinel": {
+          "master_name": {{ .Values.externalRedis.masterName | quote }},
+          "nodes": [
+            {{- if .Values.externalRedis.useSentinel }}
+            {{- $nodes := splitList "," .Values.externalRedis.sentinelNodes }}
+            {{- range $i, $node := $nodes }}
+            {{- $parts := splitList ":" $node }}
+            {{- if gt $i 0 }},{{ end }}
+            { "host": {{ index $parts 0 | quote }}, "port": {{ index $parts 1 }} }
+            {{- end }}
+            {{- end }}
+          ]
+        }
+      }
+    }

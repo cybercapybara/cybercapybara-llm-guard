@@ -1,0 +1,89 @@
+# ═══════════════════════════════════════════════════════════════
+# cpp-env — a whole test environment in one namespace.
+#
+# Deploy a new env (its own namespace; env name drives the *.<env> domain):
+#   helm dependency build ./helm/cpp-env
+#   helm upgrade --install stage ./helm/cpp-env \
+#     -n env-stage --create-namespace \
+#     --set env=stage
+#
+# Everything else (DB rw/ro URLs, Redis Sentinel, OTLP, creds, ingress hosts) is
+# wired automatically below. Each env lives in its own namespace, so service
+# names are fixed and collision-free across envs.
+# ═══════════════════════════════════════════════════════════════
+
+# Environment name — the only required knob. Drives api.<env>/… hosts.
+env: dev
+baseDomain: example.com
+
+# ── Ingress (umbrella owns all ingress; subchart ingress is disabled) ──
+ingress:
+  className: nginx
+  clusterIssuer: letsencrypt-prod        # cert-manager ClusterIssuer (DNS-01 for wildcard)
+  wildcardTlsSecret: ""                  # set to reuse a pre-issued *.<env> cert; "" → per-host certs
+  externalDnsTarget: ""                  # external-dns A target (cluster ingress IP); "" → omit annotations
+
+# ── Per-env credentials (TEST ONLY — throwaway envs). Used by the infra
+# templates below AND mirrored into the subchart password fields further down;
+# keep both in sync (or override all via --set for a sensitive env). ──
+credentials:
+  dbPassword: "test-db-pass-change-me"
+  redisPassword: "test-redis-pass-change-me"
+
+# ── Infra toggles + sizing ──
+postgres:
+  instances: 2          # CNPG: 1 primary + (instances-1) replicas → pg-rw / pg-ro
+  storageSize: 2Gi
+  storageClass: ""      # "" → cluster default
+redis:
+  enabled: true         # single master + 3 Sentinels (mymaster)
+jaeger:
+  enabled: true         # all-in-one + UI (jaeger.<env>), OTLP on :4318
+  ingress:
+    # OFF by default: Jaeger UI exposes request traces. Reach it via
+    # `kubectl port-forward svc/jaeger 16686` instead of a public ingress.
+    enabled: false      # publish jaeger.<env> ingress (unauthenticated UI)
+
+# ═══════════════════════════════════════════════════════════════
+# Subchart wiring — fixed in-namespace service names, mirrored creds.
+# ═══════════════════════════════════════════════════════════════
+
+llm-guard:
+  fullnameOverride: api
+  replicaCount: 1
+  image:
+    repository: ghcr.io/cybercapybara/llm-guard
+    tag: "v1.4.0"
+    pullPolicy: Always
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  ingress:
+    enabled: false                       # umbrella owns ingress
+  resources:
+    requests: { cpu: 100m, memory: 128Mi }
+    limits: { cpu: "1", memory: 384Mi }
+  externalDatabase:
+    host: pg-rw
+    port: 5432
+    name: app
+    user: app
+    password: "test-db-pass-change-me"   # == credentials.dbPassword
+    poolSize: 5
+    replicaHost: pg-ro
+    migrationsEnabled: false
+  migrations:
+    runAsInitContainer: true
+  externalRedis:
+    url: "tcp://redis:6379"
+    password: "test-redis-pass-change-me"  # == credentials.redisPassword
+    useSentinel: true
+    masterName: mymaster
+    sentinelNodes: "redis-sentinel:26379"
+    poolSize: 5
+  tracing:
+    enabled: true
+    otlpEndpoint: "http://jaeger:4318/v1/traces"
+  app:
+    env: production
+  serviceMonitor:
+    enabled: false

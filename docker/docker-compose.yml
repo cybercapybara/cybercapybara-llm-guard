@@ -1,0 +1,269 @@
+# Shared environment fragment for the data-plane connections. YAML merge keys
+# need map-form environment blocks below.
+x-data-env: &data-env
+  DATABASE_PRIMARY_URL: ${DATABASE_PRIMARY_URL:-postgresql://postgres:postgres@postgres:5432/appdb}
+  DATABASE_REPLICA_URLS: ${DATABASE_REPLICA_URLS:-}
+  REDIS_URL: ${REDIS_URL:-tcp://redis:6379}
+  REDIS_USE_SENTINEL: ${REDIS_USE_SENTINEL:-false}
+  REDIS_MASTER_NAME: ${REDIS_MASTER_NAME:-mymaster}
+  REDIS_SENTINEL_NODES: ${REDIS_SENTINEL_NODES:-}
+  REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+  REDIS_SENTINEL_PASSWORD: ${REDIS_SENTINEL_PASSWORD:-}
+
+services:
+  # Application service
+  app:
+    # Default: pull the public image GitLab CI builds on master. `make up-*`
+    # does `pull` (no local build). To build locally instead use `make up-build`
+    # (or `docker compose ... up --build`), which uses the build: block below.
+    image: ${APP_IMAGE:-ghcr.io/cybercapybara/llm-guard:latest}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: runtime
+      cache_from:
+        - ${BUILDER_CACHE_IMAGE:-llm-guard:builder-latest}
+    container_name: llm_guard_app
+    ports:
+      - "8080:8080"  # API
+      - "9090:9090"  # Metrics
+    environment:
+      <<: *data-env
+      OTLP_ENDPOINT: ${OTLP_ENDPOINT:-}
+      SERVICE_NAME: ${SERVICE_NAME:-}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SERVER_THREADS: ${SERVER_THREADS:-4}
+      CONFIG_FILE: ${CONFIG_FILE:-config/config.json}
+    volumes:
+      - ../logs:/app/logs
+      - ../config:/app/config
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # Test runner service
+  #
+  # Points at a dedicated test-postgres/test-redis rather than the shared dev
+  # services, so integration suites can TRUNCATE and flush freely.
+  test-runner:
+    # If TEST_IMAGE is set and already present locally (CI pulls the image that
+    # build:docker produced), `compose up` reuses it instead of recompiling.
+    # Locally TEST_IMAGE is unset → the :test-latest tag is missing → compose
+    # falls back to the build: block below (`make test` runs `compose build
+    # test-runner` first to force a fresh compile).
+    image: ${TEST_IMAGE:-llm-guard:test-latest}
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: test-runner
+      cache_from:
+        - ${BUILDER_CACHE_IMAGE:-llm-guard:builder-latest}
+    container_name: llm_guard_test_runner
+    environment:
+      - TEST_PG_HOST=test-postgres
+      - TEST_REDIS_HOST=test-redis
+      # No DB_MIGRATIONS_ENABLED=false here: env overrides JSON config, and
+      # the fresh test-postgres relies on suites running MigrationRunner to
+      # provision the schema (the shared dev postgres used to get it from an
+      # initdb mount, which masked this).
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+    networks:
+      - app-network
+    profiles:
+      - test
+
+  # Test-only Postgres — isolated from the dev stack: integration suites
+  # TRUNCATE tables, which used to wipe dev users on the shared instance.
+  # No volume → fresh data every `up`, gone on `down`. Port not published.
+  test-postgres:
+    image: postgres:15-alpine
+    container_name: llm_guard_test_postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=appdb
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    profiles:
+      - test
+
+  # Test-only Redis — isolated from the dev stack so a running `make up`
+  # can't race with the test fixtures.
+  test-redis:
+    image: redis:7-alpine
+    container_name: llm_guard_test_redis
+    command: redis-server --save ""
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+    profiles:
+      - test
+
+  # PostgreSQL database (primary)
+  postgres:
+    image: postgres:15-alpine
+    container_name: llm_guard_postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=appdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis cache
+  redis:
+    image: redis:7-alpine
+    container_name: llm_guard_redis
+    command: redis-server --appendonly yes
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Prometheus for metrics (optional)
+  prometheus:
+    image: prom/prometheus:v3.12.0
+    container_name: llm_guard_prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    ports:
+      - "9094:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus-rules.yml:/etc/prometheus/rules.yml
+      - prometheus_data:/prometheus
+    networks:
+      - app-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    profiles:
+      - with-monitoring
+
+  # Grafana for visualization (optional)
+  grafana:
+    image: grafana/grafana:11.6
+    container_name: llm_guard_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      # !!! SECURITY: set GRAFANA_ADMIN_PASSWORD (in docker/.env.monitoring or
+      # your shell) before exposing Grafana anywhere shared. The fallback below
+      # is an INSECURE local-only placeholder, NOT a usable default — generate a
+      # real one with `openssl rand -base64 24`.
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD:-changeme-local-only}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      prometheus:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+    profiles:
+      - with-monitoring
+
+  # ---- exporters for service-level dashboards (with-monitoring profile) ----
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.19.1
+    container_name: llm_guard_postgres_exporter
+    environment:
+      # matches docker-compose.yml's postgres service (user/pass/db/port).
+      DATA_SOURCE_NAME: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/appdb?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+    profiles:
+      - with-monitoring
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.86.0
+    container_name: llm_guard_redis_exporter
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app-network
+    restart: unless-stopped
+    profiles:
+      - with-monitoring
+
+  # Jaeger for distributed tracing (optional)
+  jaeger:
+    image: jaegertracing/all-in-one:1.76.0
+    container_name: llm_guard_jaeger
+    ports:
+      - "16686:16686"  # UI
+      - "4318:4318"    # OTLP HTTP
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - app-network
+    restart: unless-stopped
+    profiles:
+      - with-monitoring
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

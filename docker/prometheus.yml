@@ -1,0 +1,41 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: local-dev
+
+rule_files:
+  - /etc/prometheus/rules.yml
+
+scrape_configs:
+  # Prometheus itself.
+  - job_name: prometheus
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # llm-guard (HTTP service). Exposes /metrics on :9090 inside the compose
+  # network — see Observability::initialize() in src/core/Core.hpp.
+  - job_name: llm_guard
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['app:9090']
+        labels:
+          service: llm-guard
+          role: api
+
+  # PostgreSQL — requires the `postgres-exporter` sidecar (profile:
+  # with-monitoring). When the sidecar isn't running this target is "down"
+  # and no samples show up; the dashboard panels gracefully report "No data".
+  - job_name: postgres
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: postgres
+          role: primary
+
+  # Redis — uses `redis-exporter`, same conditional story as postgres.
+  - job_name: redis
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: redis

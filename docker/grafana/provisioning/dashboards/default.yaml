@@ -1,0 +1,15 @@
+apiVersion: 1
+
+providers:
+  - name: 'llm-guard'
+    orgId: 1
+    folder: 'llm-guard'
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /var/lib/grafana/dashboards
+      # Walk subdirectories so per-service dashboards stay grouped
+      # (llm-guard, overview, postgres, redis).
+      foldersFromFilesStructure: true

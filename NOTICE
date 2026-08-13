@@ -1,0 +1,11 @@
+Cybercapybara LLM Guard
+Copyright (c) 2026 Cybercapybara contributors
+
+This product includes detection rule catalogs derived from
+guardrails-llm-filter (https://github.com/cloud-ru-tech/guardrails-llm-filter),
+Copyright Cloud.ru, licensed under the Apache License, Version 2.0.
+Files: configs/rules.yaml, configs/rules.gitleaks.generated.yaml.
+
+The generated catalog is additionally derived from gitleaks
+(https://github.com/gitleaks/gitleaks), Copyright Zachary Rice,
+licensed under the MIT License. File: configs/gitleaks.toml.

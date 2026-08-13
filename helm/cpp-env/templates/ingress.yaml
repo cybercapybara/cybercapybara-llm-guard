@@ -1,0 +1,8 @@
+# Per-env ingress: api.<env> → API. The Jaeger UI (jaeger.<env>) is opt-in
+# (off by default) because it exposes traces with no auth — gate on its
+# ingress.enabled.
+{{ include "cpp-env.ingress" (list "api" (include "cpp-env.host" (list "api" .)) "api" 8080 .) }}
+{{- if and .Values.jaeger.enabled .Values.jaeger.ingress.enabled }}
+---
+{{ include "cpp-env.ingress" (list "jaeger" (include "cpp-env.host" (list "jaeger" .)) "jaeger" 16686 .) }}
+{{- end }}

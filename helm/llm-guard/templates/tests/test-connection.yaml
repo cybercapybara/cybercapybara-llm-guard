@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: "{{ include "llm-guard.fullname" . }}-test-connection"
+  labels:
+    {{- include "llm-guard.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": test
+spec:
+  containers:
+    - name: wget
+      image: busybox
+      command: ['wget']
+      args: ['{{ include "llm-guard.fullname" . }}:{{ .Values.service.httpPort }}/healthz', '-O', '-', '-q']
+  restartPolicy: Never

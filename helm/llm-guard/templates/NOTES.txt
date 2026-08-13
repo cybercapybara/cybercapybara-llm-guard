@@ -1,0 +1,17 @@
+
+{{ .Chart.Name }} "{{ .Release.Name }}" deployed to namespace {{ .Release.Namespace }}.
+
+Probe the release:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "llm-guard.fullname" . }} {{ .Values.service.httpPort }}:{{ .Values.service.httpPort }}
+  curl -s localhost:{{ .Values.service.httpPort }}/health | jq .
+
+{{- if not .Values.externalDatabase.password }}
+
+WARNING: externalDatabase.password is empty. Set it via --set, or enable
+  externalSecrets to source it from your cluster secret store.
+{{- end }}
+{{- if and (eq .Values.app.env "production") (not .Values.tracing.enabled) }}
+
+NOTE: tracing.enabled=false in a production release — no OTLP spans are
+  exported. Set tracing.otlpEndpoint and flip tracing.enabled to change that.
+{{- end }}
