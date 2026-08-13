@@ -26,13 +26,11 @@ set -euo pipefail
 
 DRY_RUN=0
 FORCE=0
-NO_DEMO=0
 ARGS=()
 for arg in "$@"; do
     case "$arg" in
     --dry-run | -n) DRY_RUN=1 ;;
     --force | -f) FORCE=1 ;;
-    --no-demo) NO_DEMO=1 ;;
     --help | -h)
         cat <<USAGE
 Usage: $0 [--dry-run] [--force] <project-name> [registry] [domain]
@@ -42,15 +40,8 @@ Usage: $0 [--dry-run] [--force] <project-name> [registry] [domain]
   --force, -f     Run even if project.env shows the template has already been
                   initialised under a different name. Without this flag the
                   script asks for confirmation interactively.
-  --no-demo       Strip the pedagogical flask-base reference material a real
-                  fork doesn't ship: _reference/flask-base/ (~21 MB Python
-                  source) and docs/PATTERNS-FROM-FLASK-BASE.md, AND the README
-                  "Live demo" block (demo URL + public demo credentials). The
-                  C++ app — auth, User/Role/Audit, jobs — is NOT a demo and is
-                  kept. See REMOVING-THE-DEMO.md.
-
   domain          Your host/domain — replaces the author's example.com in
-                  badges / demo URLs / SECURITY.md (default: example.com).
+                  badges / SECURITY.md (default: example.com).
 
 Example:
   $0 my-service docker.io/myorg example.org
@@ -167,8 +158,6 @@ done < <(
         -not -path './build/*' \
         -not -path './vcpkg_installed/*' \
         -not -path './vcpkg/*' \
-        -not -path './frontend/node_modules/*' \
-        -not -path './frontend/dist/*' \
         -not -path './_reference/*' \
         -not -path './docs/html/*' \
         -print0
@@ -204,34 +193,19 @@ declare -a PATTERNS=(
     "s|llm_guard_bench|${PROJECT_SNAKE}_bench|g"
     # 6. OTel service name
     "s|llm_guard_service|${PROJECT_SNAKE}_service|g"
-    # 7. Worker OTel service name
-    "s|llm_guard_worker_service|${PROJECT_SNAKE}_worker_service|g"
-    # 8. Helm maintainer team
+    # 7. Helm maintainer team
     "s|llm-guard-team|${PROJECT_NAME}-team|g"
-    # 9. Helm worker chart name
-    "s|llm-guard-worker|${PROJECT_NAME}-worker|g"
-    # 10. Helm chart, K8s, ingress
+    # 8. Helm chart, K8s, ingress
     "s|llm-guard|${PROJECT_NAME}|g"
-    # 11. Worker logger name
-    "s|llm_guard_worker|${PROJECT_SNAKE}_worker|g"
-    # 12. Logger, containers, general snake_case
+    # 9. Logger, containers, general snake_case
     "s|llm_guard|${PROJECT_SNAKE}|g"
-    # 13. Kafka client ID
-    "s|llm_guard_producer|${PROJECT_SNAKE}_producer|g"
-    # 14. De-brand the author's host/domain (gitlab namespace in badge + runbook
+    # 10. De-brand the author's host/domain (gitlab namespace in badge + runbook
     #     links, *.demo.<host> URLs, security@<host>). Runs last so it can't
     #     interfere with the project-name patterns above.
     "s|${AUTHOR_HOST//./\\.}|${NEW_HOST}|g"
-    # 15. Author's real DEMO / INFRA identifiers. These are the live deployment
-    #     source's working defaults — a fork must NOT inherit them. Rewrite to
-    #     loud placeholders so the fork's deploy-demo.sh / values fail closed
-    #     until the new owner fills them in. The verifier below flags survivors.
-    #     - public ingress IP (helm/cpp-env/values-demo.yaml)
+    # 11. Author's real INFRA identifiers. A fork must NOT inherit them.
+    #     Rewrite to loud placeholders. The verifier below flags survivors.
     "s|46\\.225\\.37\\.165|YOUR_INGRESS_IP|g"
-    #     - kube context (scripts/deploy-demo.sh)
-    "s|YOUR_KUBE_CONTEXT|YOUR_KUBE_CONTEXT|g"
-    #     - demo admin password (README, deploy-demo.sh, helm/cpp-env/values.yaml)
-    "s|change-me-demo-pass|change-me-demo-pass|g"
     #     - author's personal email, if it ever appears as a template default.
     #       Pattern 14 has already turned example.com into ${NEW_HOST}, so match
     #       the post-rewrite form (michael@${NEW_HOST}) → you@${NEW_HOST}.
@@ -254,7 +228,7 @@ if [[ $DRY_RUN -eq 1 ]]; then
     echo ""
     echo "==> Files that would be touched (matches at least one pattern):"
     for f in "${FILES[@]}"; do
-        if grep -qE 'llm-guard|llm_guard|llm-guard|llm_guard|llm-guard-worker|llm_guard_worker|llm_guard_producer|llm_guard_bench|llm_guard_service|llm_guard_worker_service|llm-guard-team|resert/|tarassov\.me|46\.225\.37\.165|YOUR_KUBE_CONTEXT|change-me-demo-pass' "$f" 2>/dev/null; then
+        if grep -qE 'llm-guard|llm_guard|llm_guard_bench|llm_guard_service|llm-guard-team|resert/|tarassov\.me|46\.225\.37\.165' "$f" 2>/dev/null; then
             echo "    $f"
         fi
     done
@@ -262,18 +236,7 @@ if [[ $DRY_RUN -eq 1 ]]; then
     if [[ -d "helm/llm-guard" && "llm-guard" != "${PROJECT_NAME}" ]]; then
         echo "==> Would rename helm/llm-guard -> helm/${PROJECT_NAME}"
     fi
-    if [[ -d "helm/llm-guard-worker" && "llm-guard-worker" != "${PROJECT_NAME}-worker" ]]; then
-        echo "==> Would rename helm/llm-guard-worker -> helm/${PROJECT_NAME}-worker"
-    fi
     echo "==> Would write project.env (PROJECT_NAME=${PROJECT_NAME}, REGISTRY=${REGISTRY}, GHCR_ORG=${REGISTRY_ORG})"
-    if [[ $NO_DEMO -eq 1 ]]; then
-        for p in "_reference" "docs/PATTERNS-FROM-FLASK-BASE.md"; do
-            [[ -e "$ROOT/$p" ]] && echo "==> Would remove reference material: $p"
-        done
-        if [[ -f "$ROOT/README.md" ]] && grep -q 'init-project:live-demo:start' "$ROOT/README.md"; then
-            echo "==> Would strip the README 'Live demo' block + its Contents entry"
-        fi
-    fi
     echo ""
     echo "DRY RUN complete. Re-run without --dry-run to apply."
     exit 0
@@ -289,11 +252,6 @@ echo "==> Text replacements complete"
 if [[ -d "helm/llm-guard" && "llm-guard" != "${PROJECT_NAME}" ]]; then
     mv "helm/llm-guard" "helm/${PROJECT_NAME}"
     echo "==> Renamed helm/llm-guard -> helm/${PROJECT_NAME}"
-fi
-
-if [[ -d "helm/llm-guard-worker" && "llm-guard-worker" != "${PROJECT_NAME}-worker" ]]; then
-    mv "helm/llm-guard-worker" "helm/${PROJECT_NAME}-worker"
-    echo "==> Renamed helm/llm-guard-worker -> helm/${PROJECT_NAME}-worker"
 fi
 
 # ── Update project.env ──────────────────────────────────────────
@@ -313,45 +271,8 @@ echo ""
 # excluded so a fork named e.g. "llm-guard-gateway" doesn't trip it. Vendor /
 # build / generated dirs and this script itself (which necessarily contains the
 # tokens) are skipped. -I skips binaries (portable across GNU/BSD grep).
-# Strip the flask-base reference material (opt-in). It exists to teach the
-# parity mapping; a shipped fork doesn't need ~21 MB of Python or the pattern
-# doc. The actual app (auth/User/Role/Audit/jobs) is NOT touched.
-if [[ $NO_DEMO -eq 1 ]]; then
-    DEMO_PATHS=("_reference" "docs/PATTERNS-FROM-FLASK-BASE.md")
-    for p in "${DEMO_PATHS[@]}"; do
-        [[ -e "$ROOT/$p" ]] || continue
-        if [[ $DRY_RUN -eq 1 ]]; then
-            echo "==> [dry-run] would remove $p"
-        else
-            echo "==> Removing reference material: $p"
-            rm -rf "${ROOT:?}/$p"
-        fi
-    done
-    if [[ $DRY_RUN -eq 0 ]]; then
-        # Drop the now-dangling doc link so check-doc-links / readers don't trip.
-        grep -rIlZ "PATTERNS-FROM-FLASK-BASE" "$ROOT" \
-            --exclude-dir=.git --exclude-dir=_reference 2>/dev/null |
-            while IFS= read -r -d '' f; do
-                sed -i.bak '/PATTERNS-FROM-FLASK-BASE/d' "$f" && rm -f "$f.bak"
-            done || true
-
-        # Strip the README "Live demo" section (between the region markers) and
-        # its Contents entry. A fork doesn't run the author's demo, so the block
-        # — which carries the demo URL + public demo credentials — has no place
-        # in a fork's README. The markers were rewritten by the host pattern
-        # above (they contain no host literal, so they survive verbatim).
-        if [[ -f "$ROOT/README.md" ]]; then
-            sed -i.bak \
-                -e '/init-project:live-demo:start/,/init-project:live-demo:end/d' \
-                -e '/init-project:live-demo:toc/d' \
-                "$ROOT/README.md" && rm -f "$ROOT/README.md.bak"
-            echo "==> Stripped README 'Live demo' block (--no-demo)"
-        fi
-    fi
-fi
-
 echo "==> Verifying rename completeness"
-LEFTOVER_RE='llm-guard|llm_guard|llm_guard_bench|llm_guard_service|llm_guard_worker_service|llm_guard_producer|llm-guard-team|resert/|ghcr\.io/resert|tarassov\.me|46\.225\.37\.165|YOUR_KUBE_CONTEXT|change-me-demo-pass|michael@tarassov\.me'
+LEFTOVER_RE='llm-guard|llm_guard|llm_guard_bench|llm_guard_service|llm-guard-team|resert/|ghcr\.io/resert|tarassov\.me|46\.225\.37\.165|michael@tarassov\.me'
 leftovers="$(grep -rInE "$LEFTOVER_RE" . \
     --exclude="$(basename "$0")" \
     --exclude=.git \

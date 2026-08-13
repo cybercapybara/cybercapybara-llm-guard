@@ -63,6 +63,5 @@ secrets/
 _reference/
 
 # Large directories not needed by the C++ builder stage
-frontend/
 helm/
 scripts/

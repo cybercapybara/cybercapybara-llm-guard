@@ -6,8 +6,8 @@ Every knob has three ways in, tried in order:
 2. **`config/config.json`** value, with `${VAR}` / `${VAR:-default}` expansion.
 3. **Built-in default** baked into the code.
 
-Set `CONFIG_FILE` to point at a different JSON file (e.g.
-`config/worker.json` for the worker binary).
+Set `CONFIG_FILE` to point at a different JSON file (e.g. a per-environment
+profile).
 
 ---
 
@@ -15,8 +15,7 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `APP_NAME` | `app.name` | string | `App` | Display name used in email subjects / templates |
-| `APP_BASE_URL` | `app.base_url` | string | `http://localhost:8080` | Public origin used to build links in account emails (confirm / reset / change-email) |
+| `APP_ENV` | `app.env` | string | `development` | `production` / `prod` arms the boot-time production-safety warnings in `Core::validate_config` |
 
 ## Server
 
@@ -35,51 +34,9 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 
 | Env | JSON key | Type | Default | Notes |
 |---|---|---|---|---|
-| `API_PUBLIC_PATHS` | `api.public_paths` | csv | `/,…,/api/auth/login,/api/auth/register,/api/auth/refresh,/api/account/confirm/*,/api/account/reset-password-request,/api/account/reset-password/*,/api/account/change-email/*` | Paths that bypass auth + rate limit. Exact-match; a trailing `*` is a prefix match (used for the token-bearing account routes). |
 | `CORS_ALLOWED_ORIGINS` | `cors.allowed_origins` | csv | — | Empty disables CORS |
-
-## Auth
-
-| Env | JSON key | Type | Default | Notes |
-|---|---|---|---|---|
-| `AUTH_MODE` | `auth.mode` | enum | `none` | `none` \| `bearer` \| `jwt` |
-| `AUTH_BEARER_TOKEN` | `auth.bearer_token` | string | — | Required when `mode=bearer` |
-| `JWT_SECRET` | `auth.jwt.secret` | string | — | Required when `mode=jwt` |
-| `JWT_ISSUER` | `auth.jwt.issuer` | string | — | Checked if non-empty |
-| `JWT_AUDIENCE` | `auth.jwt.audience` | string | — | Checked if non-empty |
-| `JWT_LEEWAY_SEC` | `auth.jwt.leeway_sec` | int | `30` | Clock skew tolerance |
-| `JWT_ROLES_CLAIM` | `auth.jwt.roles_claim` | string | `roles` | JSON claim for RBAC |
-| `JWT_SCOPES_CLAIM` | `auth.jwt.scopes_claim` | string | `scope` | Space-separated per OAuth2 |
-| `AUTH_COOKIES_ENABLED` | `auth.cookies.enabled` | bool | `false` | Cookie sessions for the SPA (access+refresh) |
-| `AUTH_COOKIE_ACCESS` | `auth.cookies.access_name` | string | `__Host-access` | Strip `__Host-` prefix for plain-http dev |
-| `AUTH_COOKIE_REFRESH` | `auth.cookies.refresh_name` | string | `__Host-refresh` | |
-| `AUTH_COOKIE_ACCESS_TTL_SEC` | `auth.cookies.access_ttl_sec` | int | `900` | 15 min |
-| `AUTH_COOKIE_REFRESH_TTL_SEC` | `auth.cookies.refresh_ttl_sec` | int | `604800` | 7 days |
-| `AUTH_COOKIE_SECURE` | `auth.cookies.secure` | bool | `true` | Set `false` only for http://localhost |
-| `AUTH_COOKIE_SAMESITE` | `auth.cookies.samesite` | enum | `Lax` | `Lax` \| `Strict` \| `None` |
-| `AUTH_COOKIE_REVOCATION_PREFIX` | `auth.cookies.refresh_revocation_prefix` | string | `auth:refresh:` | Redis prefix for refresh-JTI revocation |
-
-## Rate limit
-
-| Env | JSON key | Type | Default | Notes |
-|---|---|---|---|---|
-| `RATE_LIMIT_ENABLED` | `rate_limit.enabled` | bool | `false` | |
-| `RATE_LIMIT_REQUESTS` | `rate_limit.requests` | int | `60` | Max per window |
-| `RATE_LIMIT_WINDOW_SEC` | `rate_limit.window_sec` | int | `60` | |
-| `RATE_LIMIT_SCOPE` | `rate_limit.scope` | enum | `ip_or_user` | `ip` \| `ip_or_user` |
-| `RATE_LIMIT_TRUST_PROXY` | `rate_limit.trust_proxy` | bool | `false` | Use `X-Forwarded-For` |
-| `RATE_LIMIT_FAIL_OPEN` | `rate_limit.fail_open` | bool | `true` | Allow if Redis is down |
-| `RATE_LIMIT_WHITELIST` | `rate_limit.whitelist` | csv | — | IPs / user IDs that bypass |
-
-## Idempotency
-
-| Env | JSON key | Type | Default | Notes |
-|---|---|---|---|---|
-| `IDEMPOTENCY_ENABLED` | `idempotency.enabled` | bool | `false` | |
-| `IDEMPOTENCY_TTL_SEC` | `idempotency.ttl_sec` | int | `86400` | |
-| `IDEMPOTENCY_MAX_BODY_KB` | `idempotency.max_body_kb` | int | `1024` | Reject oversized request bodies (413) |
-| `IDEMPOTENCY_MAX_RESPONSE_KB` | `idempotency.max_response_kb` | int | `256` | Skip caching oversized responses (no replay) |
-| `IDEMPOTENCY_LOCK_TTL_SEC` | `idempotency.lock_ttl_sec` | int | `30` | In-flight lock for concurrent same-key requests |
+| `SECURITY_HSTS` | `security.hsts` | bool | `false` | Emit `Strict-Transport-Security`. Only meaningful over HTTPS |
+| `SECURITY_HSTS_MAX_AGE` | `security.hsts_max_age` | int | `31536000` | HSTS `max-age`, in seconds |
 
 ## Docs / Swagger UI
 
@@ -87,17 +44,6 @@ Set `CONFIG_FILE` to point at a different JSON file (e.g.
 |---|---|---|---|---|
 | `DOCS_ENABLED` | `docs.enabled` | bool | `false` | Mount `/api/docs` + `/api/openapi.yaml` — dev only |
 | `DOCS_OPENAPI_PATH` | `docs.openapi_path` | string | `docs/openapi.yaml` | Path served at `/api/openapi.yaml` |
-
-## Object storage
-
-`Storage::get()` is a get/put/remove seam (`src/storage/Storage.hpp`). Only the
-`local` filesystem backend ships; swap in S3/GCS by subclassing `StorageBackend`.
-
-| Env | JSON key | Type | Default | Notes |
-|---|---|---|---|---|
-| `STORAGE_BACKEND` | `storage.backend` | string | `local` | Only `local` is built in; any other value fails fast at boot |
-| `STORAGE_LOCAL_ROOT` | `storage.local.root` | string | `data/uploads` | Directory the local backend writes objects under (gitignored) |
-| `STORAGE_PUBLIC_BASE_URL` | `storage.public_base_url` | string | — | Prepended to a key by `url()` (e.g. a CDN base); empty → returns the bare key |
 
 ## Observability
 
@@ -133,14 +79,12 @@ For individual Postgres URL components used by the sample config:
 
 ### Read replicas and `DB_POOL_SIZE`
 
-Setting `DATABASE_REPLICA_URLS` routes most reads to a replica, but a few
-paths deliberately read from the **primary** to get read-after-write
-consistency (via `Database::execute_read_primary`), regardless of the replica
-config: the account email worker, the admin "update-echo" read-back after a
-mutation, and `--verify-migrations`. So sizing `DB_POOL_SIZE` (the primary
-pool) only for HTTP traffic under-counts: the background email worker competes
-for the same primary connections. Budget primary `DB_POOL_SIZE` for request
-handlers **plus** the worker, even when replicas absorb the bulk of reads.
+Setting `DATABASE_REPLICA_URLS` routes most reads to a replica, but some paths
+deliberately read from the **primary** to get read-after-write consistency (via
+`Database::execute_read_primary`) regardless of the replica config — a
+read-back after a mutation, and `--verify-migrations`. Budget the primary
+`DB_POOL_SIZE` for request handlers **plus** any off-loop work, even when
+replicas absorb the bulk of reads.
 
 ## Cache (Redis)
 
@@ -158,68 +102,6 @@ handlers **plus** the worker, even when replicas absorb the bulk of reads.
 
 For URL components: `REDIS_HOST`, `REDIS_PORT`.
 
-## Messaging (Kafka)
-
-| Env | JSON key | Type | Default | Notes |
-|---|---|---|---|---|
-| `MESSAGING_ENABLED` | `messaging.enabled` | bool | `false` | Parent switch |
-| `KAFKA_BROKERS` | `messaging.kafka.brokers` | string | `localhost:9092` | |
-| `KAFKA_PRODUCER_ENABLED` | `messaging.kafka.producer.enabled` | bool | `false` | |
-| `KAFKA_PRODUCER_ID` | `messaging.kafka.producer.client_id` | string | `llm_guard_producer` | |
-| `KAFKA_CONSUMER_ENABLED` | `messaging.kafka.consumer.enabled` | bool | `false` | |
-| `KAFKA_GROUP_ID` | `messaging.kafka.consumer.group_id` | string | `cpp_consumer_group` | |
-
-## Jobs
-
-| Env | JSON key | Type | Default |
-|---|---|---|---|
-| `JOBS_ENABLED` | `jobs.enabled` | bool | `false` |
-| `JOBS_RESULT_TTL` | `jobs.result_ttl` | int | `86400` |
-| `JOBS_MAX_RETRIES` | `jobs.max_retries` | int | `3` |
-| `JOBS_DLQ_METRIC_REFRESH_SEC` | `jobs.dlq_metric_refresh_sec` | int | `10` | Exports `jobs_dlq_depth{type="..."}` plus an aggregate `type="_total"` |
-| `DB_REPLICA_LAG_METRIC_REFRESH_SEC` | `database.replica_lag_metric_refresh_sec` | int | `15` | Refresh interval for the `db_replica_lag_seconds` gauge. Only registered when read replicas are configured (primary has no replay timestamp). |
-
-## Content
-
-| Env | JSON key | Type | Default | Notes |
-|---|---|---|---|---|
-| `CONTENT_ENABLED` | `content.enabled` | bool | `false` | Master switch for the posts/uploads/sitemap module (`PostsController`, `ContentPagesController`, `UploadController`) — same on/off pattern as `JOBS_ENABLED`. Routes are always registered; handlers 404 while off (`/sitemap.xml` degrades to a root-only sitemap instead — see the content module design doc). |
-
-Enabling content on a deployment whose `API_PUBLIC_PATHS` overrides the
-built-in default (rather than leaving it unset) must also add the module's
-public paths to that override — `/posts/*`, `/sitemap.xml`,
-`/api/v1/public/posts`, `/api/v1/public/posts/*`, `/uploads/*` — or anonymous
-readers get 401/404 on routes the code otherwise treats as public. See
-`config/config.production.json`, which currently overrides `API_PUBLIC_PATHS`
-without these and intentionally ships with content still gated off.
-
-## Mail (SMTP)
-
-| Env | JSON key | Type | Default | Notes |
-|---|---|---|---|---|
-| `MAIL_ENABLED` | `mail.enabled` | bool | `false` | Off → links are logged at INFO instead of sent |
-| `MAIL_VIA_JOBS` | `mail.via_jobs` | bool | `true` | Route account emails through the `account_email` job queue when Jobs is enabled (worker must subscribe to that type); falls back to inline send when Jobs is off or enqueue fails |
-| `MAIL_SMTP_HOST` | `mail.smtp_host` | string | `mailpit` | `config.json` default targets the Mailpit dev sidecar |
-| `MAIL_SMTP_PORT` | `mail.smtp_port` | int | `1025` | |
-| `MAIL_SMTP_USERNAME` | `mail.smtp_username` | string | — | Empty → anonymous |
-| `MAIL_SMTP_PASSWORD` | `mail.smtp_password` | string | — | |
-| `MAIL_SMTP_USE_TLS` | `mail.smtp_use_tls` | bool | `false` | STARTTLS; implicit TLS on port 465 |
-| `MAIL_FROM` | `mail.from` | string | `noreply@example.com` | |
-| `MAIL_FROM_NAME` | `mail.from_name` | string | `App` | |
-| `MAIL_SUBJECT_PREFIX` | `mail.subject_prefix` | string | `[App] ` | Note the trailing space. If the prefix doesn't end in a space, one is inserted between prefix and subject automatically |
-| `MAIL_TEMPLATES_DIR` | `mail.templates_dir` | string | `templates/email` | Relative to the working directory |
-| `MAIL_TIMEOUT_SEC` | `mail.timeout_sec` | int | `30` | |
-
-## Worker (second binary, `llm_guard_worker`)
-
-| Env | JSON key | Type | Default |
-|---|---|---|---|
-| `WORKER_ID` | `worker.id` | string | `worker-1` |
-| `WORKER_TYPES` | `worker.types` | csv | `default` | Queues the worker pulls from. MUST include `account_email`, `email.send`, and `webhook.deliver` or those jobs pile up undrained. |
-| `WORKER_CONCURRENCY` | `worker.concurrency` | int | `2` |
-| `WORKER_HEALTH_PORT` | `worker.health_port` | int | `9091` |
-| `WORKER_BRPOP_TIMEOUT` | `worker.brpop_timeout` | int | `5` |
-
 ## Conventions
 
 - `csv`: comma-separated values, no spaces around commas. Empty components dropped.
@@ -234,8 +116,8 @@ without these and intentionally ships with content still gated off.
 ```bash
 # config/local.json (gitignored)
 {
-  "server": { "port": 8081 },
-  "auth":   { "mode": "jwt" }
+  "server":   { "port": 8081 },
+  "database": { "pool_size": 4 }
 }
 
 CONFIG_FILE=config/local.json ./llm_guard

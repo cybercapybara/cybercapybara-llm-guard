@@ -2,11 +2,5 @@ dependencies:
 - name: llm-guard
   repository: file://../llm-guard
   version: 0.1.0
-- name: llm-guard-worker
-  repository: file://../llm-guard-worker
-  version: 0.1.0
-- name: cpp-frontend
-  repository: file://../cpp-frontend
-  version: 0.1.0
-digest: sha256:b61b3cf36d854c8ee080637a6741c265023514d38a39b0980414927350ed75c0
-generated: "2026-06-20T10:27:16.695397+03:00"
+digest: sha256:a047430b6bd30f91be7bfea21726fdd05874c0689718769f0dd29b323999c4a5
+generated: "2026-08-14T02:08:38.748033+05:00"

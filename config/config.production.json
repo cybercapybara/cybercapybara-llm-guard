@@ -1,9 +1,7 @@
 {
-  "_comment": "Production profile: every security toggle ON, every dev convenience OFF. Validate with `make prod-check` before deploying. Secrets come ONLY from the environment — this file must never contain literal credentials.",
+  "_comment": "Production profile: every security toggle ON, every dev convenience OFF. Validate with `make prod-check` before deploying. Secrets come ONLY from the environment \u2014 this file must never contain literal credentials.",
   "app": {
-    "env": "production",
-    "name": "${APP_NAME}",
-    "base_url": "${APP_BASE_URL}"
+    "env": "production"
   },
   "server": {
     "host": "0.0.0.0",
@@ -48,89 +46,11 @@
       "nodes": []
     }
   },
-  "mail": {
-    "enabled": "${MAIL_ENABLED:-true}",
-    "via_jobs": "${MAIL_VIA_JOBS:-true}",
-    "smtp_host": "${MAIL_SMTP_HOST}",
-    "smtp_port": "${MAIL_SMTP_PORT:-587}",
-    "smtp_username": "${MAIL_SMTP_USERNAME}",
-    "smtp_password": "${MAIL_SMTP_PASSWORD}",
-    "smtp_use_tls": true,
-    "from": "${MAIL_FROM}",
-    "from_name": "${MAIL_FROM_NAME}",
-    "subject_prefix": "${MAIL_SUBJECT_PREFIX:-}",
-    "timeout_sec": 30
-  },
-  "messaging": {
-    "enabled": false
-  },
-  "api": {
-    "public_paths": "/healthz,/ready,/health,/api/v1/auth/login,/api/v1/auth/register,/api/v1/auth/refresh,/api/v1/account/confirm/*,/api/v1/account/reset-password-request,/api/v1/account/reset-password/*,/api/v1/account/change-email/*,/api/v1/account/join-from-invite/*"
-  },
   "docs": {
     "enabled": false
   },
   "security": {
     "hsts": true,
-    "hsts_max_age": 31536000,
-    "csrf": {
-      "enabled": "${SECURITY_CSRF_ENABLED:-false}",
-      "cookie_name": "csrf-token",
-      "header_name": "X-CSRF-Token"
-    }
-  },
-  "auth": {
-    "mode": "jwt",
-    "cookies": {
-      "enabled": true,
-      "access_name": "__Host-access",
-      "refresh_name": "__Host-refresh",
-      "access_ttl_sec": 900,
-      "refresh_ttl_sec": 604800,
-      "secure": true,
-      "samesite": "Lax",
-      "refresh_revocation_prefix": "auth:refresh:"
-    },
-    "jwt": {
-      "secret": "${JWT_SECRET}",
-      "issuer": "${JWT_ISSUER}",
-      "audience": "${JWT_AUDIENCE}",
-      "leeway_sec": 30,
-      "roles_claim": "roles",
-      "scopes_claim": "scope"
-    }
-  },
-  "idempotency": {
-    "enabled": true,
-    "ttl_sec": 86400,
-    "lock_ttl_sec": 30,
-    "max_body_kb": 1024,
-    "max_response_kb": 256
-  },
-  "rate_limit": {
-    "enabled": true,
-    "requests": "${RATE_LIMIT_REQUESTS:-120}",
-    "window_sec": 60,
-    "protected_requests": "${RATE_LIMIT_PROTECTED_REQUESTS:-10}",
-    "protected_window_sec": 60,
-    "scope": "ip_or_user",
-    "trust_proxy": true,
-    "fail_open": false,
-    "whitelist": ""
-  },
-  "jobs": {
-    "enabled": "${JOBS_ENABLED:-true}",
-    "result_ttl": 86400,
-    "max_retries": 3,
-    "retry_backoff_base_ms": 1000,
-    "retry_backoff_max_ms": 60000,
-    "visibility_timeout_sec": 300
-  },
-  "worker": {
-    "id": "${WORKER_ID:-worker-1}",
-    "types": ["default"],
-    "concurrency": "${WORKER_CONCURRENCY:-2}",
-    "health_port": 9091,
-    "brpop_timeout": 5
+    "hsts_max_age": 31536000
   }
 }

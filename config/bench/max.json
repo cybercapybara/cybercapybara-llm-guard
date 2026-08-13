@@ -22,6 +22,5 @@
     "use_sentinel": false,
     "url": "tcp://redis:6379",
     "pool_size": 30
-  },
-  "messaging": { "enabled": false }
+  }
 }

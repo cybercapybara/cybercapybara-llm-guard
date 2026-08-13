@@ -15,16 +15,6 @@ groups:
           summary: "API metrics endpoint is unreachable"
           description: "Prometheus has not scraped {{ $labels.instance }} for 2 minutes — the process is down or wedged."
 
-      - alert: WorkerTargetDown
-        expr: up{job="llm_guard_worker"} == 0
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          runbook_url: "https://gitlab.com/example.com/llm-guard/-/blob/master/docs/RUNBOOK.md#targetdown"
-          summary: "Worker metrics endpoint is unreachable"
-          description: "Background jobs are not being processed if the worker is down."
-
   - name: api-errors
     rules:
       - alert: High5xxRate
@@ -66,19 +56,8 @@ groups:
           summary: "Read replica is more than 60s behind the primary"
           description: "Lag {{ $value }}s — stale reads are being served; check replica I/O and WAL volume."
 
-  - name: jobs
+  - name: dependencies
     rules:
-      - alert: DeadLetterQueueGrowing
-        # Any DLQ backlog that sticks around means jobs are permanently failing.
-        expr: jobs_dlq_depth{type="_total"} > 0
-        for: 15m
-        labels:
-          severity: warning
-        annotations:
-          runbook_url: "https://gitlab.com/example.com/llm-guard/-/blob/master/docs/RUNBOOK.md#dlq"
-          summary: "Jobs dead-letter queue is non-empty for 15 minutes"
-          description: "{{ $value }} job(s) in the DLQ. Inspect /api/jobs/dlq and requeue or fix the handler."
-
       - alert: RetriesExhaustedSpike
         expr: sum(rate(retries_total{outcome="exhausted"}[5m])) > 0.1
         for: 5m
@@ -88,18 +67,6 @@ groups:
           runbook_url: "https://gitlab.com/example.com/llm-guard/-/blob/master/docs/RUNBOOK.md#retries"
           summary: "Transient-error retries are being exhausted"
           description: "Downstream (DB/Redis) is failing past the retry budget — check dependency health."
-
-      - alert: JobsQueueBacklog
-        # Leading indicator: a waiting queue that stays deep means submitters
-        # are outrunning the worker pool. Tune the threshold to your throughput.
-        expr: jobs_queue_depth{type="_total"} > 100
-        for: 10m
-        labels:
-          severity: warning
-        annotations:
-          runbook_url: "https://gitlab.com/example.com/llm-guard/-/blob/master/docs/RUNBOOK.md#queuebacklog"
-          summary: "Jobs waiting-queue backlog above 100 for 10 minutes"
-          description: "{{ $value }} job(s) queued and not draining — scale workers or check for a stuck handler before jobs age into the DLQ."
 
   - name: saturation
     rules:

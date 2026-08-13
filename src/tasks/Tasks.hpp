@@ -2,10 +2,10 @@
  * @file Tasks.hpp
  * @brief Recurring background tasks scheduled on Drogon's event loop.
  *
- * Single user today: Core::register_dlq_metric_ schedules a periodic
- * Redis scan to refresh the jobs DLQ Prometheus gauge. Kept as a thin
- * facade so callers don't reach into Drogon directly and so cancel_all()
- * can drain timers cleanly on Core::shutdown().
+ * Used today by Core's metric refreshers (db pool saturation, replica lag),
+ * which sample cheap counters on a timer. Kept as a thin facade so callers
+ * don't reach into Drogon directly and so cancel_all() can drain timers
+ * cleanly on Core::shutdown().
  */
 
 #pragma once

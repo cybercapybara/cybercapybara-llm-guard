@@ -1,26 +1,19 @@
 # Lighter preset for the cpp-env umbrella — the "I just want it running" path.
-# Drops the optional heavy services (Kafka, Jaeger/OTel) and the Postgres read
-# replica, leaving: app + worker + Postgres(single) + Redis + Mailpit + frontend.
+# Drops the optional heavy services (Jaeger/OTel) and the Postgres read replica,
+# leaving: api + Postgres(single) + Redis.
 #
 # Layer it on top of the per-env --set flags:
 #   helm upgrade --install <env> helm/cpp-env -n <ns> \
 #     -f helm/cpp-env/values-minimal.yaml \
-#     --set env=<env> --set baseDomain=<domain> --set cpp-{api,worker,frontend}.image.tag=<sha>
+#     --set env=<env> --set baseDomain=<domain> --set llm-guard.image.tag=<sha>
 #
 # NOT a security/prod config — credentials are still TEST defaults. Redis still
-# runs as Sentinel (true single-node Redis templating is a follow-up; see the
-# council roadmap T2 Phase 4). For zero-operator LOCAL dev use `make up` instead.
-kafka:
-  enabled: false
+# runs as Sentinel (true single-node Redis templating is a follow-up). For
+# zero-operator LOCAL dev use `make up` instead.
 jaeger:
   enabled: false
 postgres:
   instances: 1 # single primary, no read replica
 llm-guard:
-  externalKafka:
-    enabled: false
   tracing:
     enabled: false # no Jaeger to export to
-llm-guard-worker:
-  tracing:
-    enabled: false

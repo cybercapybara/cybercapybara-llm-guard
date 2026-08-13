@@ -22,7 +22,7 @@
 #   1. Creates src/api/<ControllerName>.hpp with one handler.
 #      - Path placeholders ({1},{2},...) become trailing `const std::string&`
 #        params (Drogon binds one per placeholder). A single {1} gets a uuid
-#        guard. Mutating verbs (Post/Put/Delete/Patch) get API_REQUIRE_ADMIN.
+#        guard.
 #   2. Adds `#include "api/<ControllerName>.hpp"` to src/api/Api.hpp.
 #   3. Inserts a row into get_endpoints() (src/api/Endpoints.hpp).
 #   4. Patches docs/openapi.yaml (unless --no-openapi).
@@ -115,9 +115,8 @@ while [[ "$i" -le "$NUM_PARAMS" ]]; do
     i=$((i + 1))
 done
 
-# Mutating verbs are admin-guarded by default: AUTH_MODE=none makes every
-# route public otherwise, so a fresh POST/PUT/DELETE/PATCH would ship as an
-# unauthenticated mutation. Get stays open.
+# POST conventionally answers 201; the rest 200. Tracked so the stub handler
+# and its generated test agree on the expected status.
 IS_MUTATION=0
 case "$METHOD" in
 Post | Put | Delete | Patch) IS_MUTATION=1 ;;
@@ -126,10 +125,6 @@ esac
 # Build the handler body once so the create-file (heredoc) and extend-file
 # (awk) paths emit identical code. Indentation is 8 spaces (inside class).
 build_handler_body() {
-    if [[ "$IS_MUTATION" -eq 1 ]]; then
-        printf '        // TODO: relax/justify if this route is intentionally public\n'
-        printf '        API_REQUIRE_ADMIN(req, callback);\n'
-    fi
     if [[ "$NUM_PARAMS" -eq 1 ]]; then
         printf '        if (!is_valid_uuid(p1)) {\n'
         printf '            callback(ErrorResponse::bad_request("invalid_id"));\n'
@@ -168,7 +163,6 @@ if [[ ! -f "$FILE" ]]; then
 
 // Controllers must NOT include api/Api.hpp (it includes the controllers — that
 // would cycle). Pull only the small shared helpers.
-#include "api/Guards.hpp"        // API_REQUIRE_ADMIN / API_REQUIRE_PRINCIPAL
 #include "api/RequestUtils.hpp"  // parse_int / parse_page_params / is_valid_uuid
 #include "api/Validation.hpp"
 #include "utils/ErrorResponse.hpp"  // Response::ok / ErrorResponse::*
@@ -229,7 +223,7 @@ fi
 # ── 2. Wire include into src/api/Api.hpp ────────────────────────────────
 if ! grep -q "#include \"api/${NAME}.hpp\"" "$API_HPP"; then
     awk -v inc="#include \"api/${NAME}.hpp\"" '
-        /#include "api\/JobsController.hpp"/ {
+        /#include "api\/HealthController.hpp"/ {
             print; print inc; printed=1; next
         }
         { print }
@@ -361,16 +355,7 @@ if [[ $WITH_TEST -eq 1 ]]; then
             STATUS_SUFFIX="200"
         fi
 
-        # Mutating handlers are admin-guarded → drive them through the authed
-        # admin helper so the guard passes even once AUTH_MODE is enabled.
-        # admin_principal() lives in test_fixtures.hpp, so only pull it in then.
-        if [[ "$IS_MUTATION" -eq 1 ]]; then
-            FIXTURES_INCLUDE='#include "test_fixtures.hpp"'
-            REQUEST_EXPR="TestHelpers::authed(TestFixtures::admin_principal(), ${METHOD})"
-        else
-            FIXTURES_INCLUDE=""
-            REQUEST_EXPR="TestHelpers::make_request(${METHOD})"
-        fi
+        REQUEST_EXPR="TestHelpers::make_request(${METHOD})"
 
         cat >"$TEST_FILE" <<TESTEOF
 #include <drogon/HttpRequest.h>
@@ -383,7 +368,6 @@ if [[ $WITH_TEST -eq 1 ]]; then
 // controller. Production controllers never include it (it would cycle).
 #include "api/Api.hpp"
 #include "test_helpers.hpp"
-${FIXTURES_INCLUDE}
 
 using json = nlohmann::json;
 using namespace drogon;

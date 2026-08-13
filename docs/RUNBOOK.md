@@ -10,16 +10,15 @@ Conventions: `make` targets assume the compose stack; in k8s substitute
 
 ---
 
-## ApiTargetDown / WorkerTargetDown {#targetdown}
+## ApiTargetDown {#targetdown}
 
 Prometheus hasn't scraped the process for 2 min — it's down or wedged.
 
 1. `kubectl get pods` / `make ps` — is it crash-looping or gone?
 2. Logs: `kubectl logs <pod> --previous` / `make logs`. Look for the init
-   order line that's missing (Config→Observability→Database→…→Mailer).
+   order line that's missing (Config→Observability→Database→Migrations→Cache→Tasks).
 3. Common causes: DB/Redis unreachable at boot (Database throws → Core aborts;
-   replica being down does NOT abort, that's handled), bad `JWT_SECRET` under
-   `AUTH_MODE=jwt`, port already bound.
+   a replica being down does NOT abort, that's handled), port already bound.
 4. `/healthz` (alive) vs `/ready` (dependencies). 503 on `/ready` with 200 on
    `/healthz` = draining or a dependency is unhealthy → check `/health`.
 
@@ -28,7 +27,7 @@ Prometheus hasn't scraped the process for 2 min — it's down or wedged.
 >5% of responses are 5xx.
 
 1. Find the failing route: Grafana `http_requests_total{status=~"5.."}` by
-   `path`. The path is normalized (`/api/jobs/:id`), tokens redacted.
+   `path`. The path is normalized (`/api/v1/thing/:id`), tokens redacted.
 2. Pull a failing trace (`tid=` in the log) — `make tail-trace TID=<id>` shows
    the `db.*` child spans with the SQL template + pool label.
 3. DB-driven? See [HighP99Latency](#p99). Dependency down? See
@@ -56,41 +55,14 @@ Read replica >60s behind. Stale reads are being served.
    errors, but lag (not error) still serves stale data. To force primary-only
    temporarily, set `DATABASE_REPLICA_URLS=""` and restart.
 
-## DeadLetterQueueGrowing {#dlq}
-
-Jobs exhausted their retries and landed in the DLQ.
-
-1. Inspect: admin UI **/admin/jobs → DLQ tab**, or
-   `GET /api/jobs/dlq` (admin token). Each row has the last `error` and a
-   `trace_id` → open the worker trace.
-2. Transient cause now fixed (e.g. SMTP was down)? Requeue:
-   `POST /api/jobs/dlq/{id}/requeue` or the UI button.
-3. Code bug? Fix the handler, redeploy the worker, then requeue.
-4. Account emails specifically: check `WORKER_TYPES` includes `account_email`
-   and the worker has `JWT_SECRET` + `MAIL_*` (a missing secret DLQ's every
-   email with `master_secret must be set`).
-
 ## RetriesExhaustedSpike {#retries}
 
 A downstream (DB/Redis) is failing past the retry budget.
 
 1. Which? `retries_total{component=...,outcome="exhausted"}`.
-2. Redis: cache ops are fail-open (degraded, not down) EXCEPT session-mint
-   (login fails closed if it can't record the refresh JTI) — so a Redis
-   outage shows as login failures + rate-limit fail-closed (if configured).
+2. Redis: cache ops are fail-open (degraded, not down) — a Redis outage shows
+   as cache misses and a failing `cache` probe in `/health`, not as 5xx.
 3. DB: see [HighP99Latency](#p99) / [ApiTargetDown](#targetdown).
-
-## JobsQueueBacklog {#queuebacklog}
-
-The waiting queue (`jobs_queue_depth{type="_total"}`) is deep and not draining —
-submitters are outrunning the worker pool. This is the *leading* signal; left
-alone, jobs eventually age into the DLQ ([DeadLetterQueueGrowing](#dlq)).
-
-1. Which type? `jobs_queue_depth` is labeled by `type`.
-2. Workers alive and consuming? Check `up{job="llm_guard_worker"}` and the worker
-   logs. A stuck handler (one slow job type blocking its thread) starves the
-   rest — BRPOP concurrency equals the thread count.
-3. Genuine load spike? Scale worker replicas / `WORKER_CONCURRENCY`.
 
 ## DbPoolSaturationHigh {#dbpool}
 

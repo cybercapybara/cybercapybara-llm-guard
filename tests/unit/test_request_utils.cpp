@@ -17,18 +17,18 @@ namespace {
 using Api::normalize_path_for_metrics;
 
 TEST(RequestUtilsTest, PlainPathUnchanged) {
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/jobs"), "/api/v1/jobs");
+    EXPECT_EQ(normalize_path_for_metrics("/api/v1/items"), "/api/v1/items");
     EXPECT_EQ(normalize_path_for_metrics("/"), "/");
     EXPECT_EQ(normalize_path_for_metrics("/healthz"), "/healthz");
 }
 
 TEST(RequestUtilsTest, UuidSegmentRedacted) {
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/jobs/123e4567-e89b-12d3-a456-426614174000"), "/api/v1/jobs/:id");
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/admin/users/123e4567-e89b-12d3-a456-426614174000"),
-              "/api/v1/admin/users/:id");
+    EXPECT_EQ(normalize_path_for_metrics("/api/v1/items/123e4567-e89b-12d3-a456-426614174000"), "/api/v1/items/:id");
+    EXPECT_EQ(normalize_path_for_metrics("/api/v1/things/123e4567-e89b-12d3-a456-426614174000"),
+              "/api/v1/things/:id");
     // UUID mid-path + trailing segment.
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/jobs/dlq/123e4567-e89b-12d3-a456-426614174000/requeue"),
-              "/api/v1/jobs/dlq/:id/requeue");
+    EXPECT_EQ(normalize_path_for_metrics("/api/v1/items/123e4567-e89b-12d3-a456-426614174000/children"),
+              "/api/v1/items/:id/children");
 }
 
 TEST(RequestUtilsTest, AccountTokensRedacted) {

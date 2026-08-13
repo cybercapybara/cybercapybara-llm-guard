@@ -50,7 +50,7 @@ struct Policy {
 // Set via bind_metrics(); the function pointer is plain data and does
 // not involve any global constructor that could misbehave at load time.
 using MetricFn = void (*)(const char* component, const char* outcome);
-// Bound on the main thread (Core::init), read from every IO/worker thread —
+// Bound on the main thread (Core::init), read from every IO thread —
 // atomic so the publish is visible without a data race.
 inline std::atomic<MetricFn> metric_sink_{nullptr};
 
@@ -173,7 +173,7 @@ inline bool is_transient_pqxx_read(const std::exception& e) {
  *            non-idempotent INSERT can duplicate the row.
  *
  *        Callers that know their write is idempotent (e.g. UPSERT, or a
- *        call wrapped by the Idempotency-Key middleware) can pass the
+ *        call wrapped by a de-duplicating middleware) can pass the
  *        read classifier explicitly to opt into aggressive retry.
  */
 inline bool is_transient_pqxx_write(const std::exception& e) {

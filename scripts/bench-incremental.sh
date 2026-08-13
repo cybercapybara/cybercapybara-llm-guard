@@ -28,10 +28,9 @@ command -v cmake >/dev/null 2>&1 || {
 HOT=(
     src/core/Core.hpp
     src/api/Middleware.hpp
-    src/jobs/Jobs.hpp
     src/database/Database.hpp
     src/cache/Cache.hpp
-    src/security/Auth.hpp
+    src/observability/Observability.hpp
 )
 
 echo "==> warming build (preset=$PRESET) — first run compiles everything"

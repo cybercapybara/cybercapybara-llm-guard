@@ -12,8 +12,7 @@ data:
   config.json: |
     {
       "app": {
-        "name": {{ .Values.app.name | quote }},
-        "base_url": {{ .Values.app.baseUrl | quote }}
+        "env": {{ .Values.app.env | quote }}
       },
       "server": {
         "host": "0.0.0.0",
@@ -57,70 +56,6 @@ data:
             {{- end }}
             {{- end }}
           ]
-        }
-      },
-      "jobs": {
-        "enabled": {{ .Values.jobs.enabled }},
-        "result_ttl": {{ .Values.jobs.resultTtl }},
-        "max_retries": {{ .Values.jobs.maxRetries }}
-      },
-      "rate_limit": {
-        "enabled": {{ .Values.rateLimit.enabled }},
-        "requests": {{ .Values.rateLimit.requests }},
-        "window_sec": {{ .Values.rateLimit.windowSec }},
-        "scope": {{ .Values.rateLimit.scope | quote }},
-        "trust_proxy": {{ .Values.rateLimit.trustProxy }},
-        "trusted_proxy_count": {{ .Values.rateLimit.trustedProxyCount }},
-        "fail_open": {{ .Values.rateLimit.failOpen }},
-        "whitelist": {{ .Values.rateLimit.whitelist | quote }}
-      },
-      "idempotency": {
-        "enabled": {{ .Values.idempotency.enabled }},
-        "ttl_sec": {{ .Values.idempotency.ttlSec }},
-        "lock_ttl_sec": {{ .Values.idempotency.lockTtlSec }},
-        "max_body_kb": {{ .Values.idempotency.maxBodyKb }},
-        "max_response_kb": {{ .Values.idempotency.maxResponseKb }}
-      },
-      "mail": {
-        "enabled": {{ .Values.mail.enabled }},
-        "via_jobs": {{ .Values.mail.viaJobs }},
-        "smtp_host": {{ .Values.mail.smtpHost | quote }},
-        "smtp_port": {{ .Values.mail.smtpPort }},
-        "smtp_username": {{ .Values.mail.smtpUsername | quote }},
-        "smtp_password": "${MAIL_SMTP_PASSWORD:-}",
-        "smtp_use_tls": {{ .Values.mail.smtpUseTls }},
-        "from": {{ .Values.mail.from | quote }},
-        "from_name": {{ .Values.mail.fromName | quote }},
-        "subject_prefix": {{ .Values.mail.subjectPrefix | quote }},
-        "timeout_sec": 30
-      },
-      "storage": {
-        "backend": {{ .Values.storage.backend | quote }},
-        "public_base_url": {{ .Values.storage.publicBaseUrl | quote }},
-        "local": {
-          "root": "data/uploads"
-        },
-        "s3": {
-          "endpoint": {{ .Values.storage.s3.endpoint | quote }},
-          "region": {{ .Values.storage.s3.region | quote }},
-          "bucket": {{ .Values.storage.s3.bucket | quote }},
-          "access_key": {{ .Values.storage.s3.accessKey | quote }},
-          "secret_key": "${S3_SECRET_KEY:-}"
-        }
-      },
-      "messaging": {
-        "enabled": {{ .Values.externalKafka.enabled }},
-        "kafka": {
-          "brokers": {{ .Values.externalKafka.brokers | quote }},
-          "producer": {
-            "enabled": {{ .Values.externalKafka.producerEnabled }},
-            "client_id": {{ .Values.externalKafka.producerId | quote }}
-          },
-          "consumer": {
-            "enabled": {{ .Values.externalKafka.consumerEnabled }},
-            "group_id": {{ .Values.externalKafka.consumerGroupId | quote }},
-            "topics": ["default_topic"]
-          }
         }
       }
     }

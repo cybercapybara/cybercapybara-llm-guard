@@ -11,5 +11,5 @@ providers:
     options:
       path: /var/lib/grafana/dashboards
       # Walk subdirectories so per-service dashboards stay grouped
-      # (llm-guard, llm-guard-worker, postgres, redis, kafka).
+      # (llm-guard, overview, postgres, redis).
       foldersFromFilesStructure: true

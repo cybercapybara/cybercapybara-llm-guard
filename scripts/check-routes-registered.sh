@@ -51,7 +51,7 @@ if [[ "$missing" -ne 0 ]]; then
     exit 1
 fi
 
-# Versioning lint (docs/adr/0001-api-versioning.md): every /api route must be
+# Versioning lint (docs/adr/0006-api-versioning.md): every /api route must be
 # /api/v<N>/... . Catches a forker re-introducing an unversioned route. Pulls
 # paths from both the controllers and the registry.
 unversioned="$(
@@ -62,7 +62,7 @@ unversioned="$(
     } | sort -u | grep -E '^/api/' | grep -vE '^/api/v[0-9]+/' || true
 )"
 if [[ -n "$unversioned" ]]; then
-    echo "UNVERSIONED API route(s) — must be /api/v<N>/... (see docs/adr/0001-api-versioning.md):" >&2
+    echo "UNVERSIONED API route(s) — must be /api/v<N>/... (see docs/adr/0006-api-versioning.md):" >&2
     echo "$unversioned" | sed 's/^/  /' >&2
     exit 1
 fi

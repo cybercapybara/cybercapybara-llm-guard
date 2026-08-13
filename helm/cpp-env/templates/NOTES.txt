@@ -5,14 +5,10 @@ This umbrella assumes the cluster already provides (install fails without them):
   - CloudNativePG operator   — Postgres "pg" is a CNPG Cluster CR
   - cert-manager + ClusterIssuer "{{ .Values.ingress.clusterIssuer }}"  — per-host TLS
   - an ingress controller for ingressClassName "{{ .Values.ingress.className }}"
-  - amd64 nodes              — app/worker images (nodeSelector kubernetes.io/arch)
+  - amd64 nodes              — the app image (nodeSelector kubernetes.io/arch)
   For zero-operator LOCAL dev use `make up` (Docker Compose), not this chart.
 
-  SPA      https://{{ include "cpp-env.host" (list "app" .) }}
   API      https://{{ include "cpp-env.host" (list "api" .) }}
-{{- if .Values.mailpit.enabled }}
-  Mailpit  https://{{ include "cpp-env.host" (list "mail" .) }}
-{{- end }}
 {{- if .Values.jaeger.enabled }}
   Jaeger   https://{{ include "cpp-env.host" (list "jaeger" .) }}
 {{- end }}
@@ -22,14 +18,6 @@ Wiring (all in-namespace, fixed names):
 {{- if .Values.redis.enabled }}
   Redis      sentinel redis-sentinel:26379 (master "mymaster" → redis:6379)
 {{- end }}
-{{- if .Values.kafka.enabled }}
-  Kafka      kafka:9092
-{{- end }}
-
-Create an admin once Postgres is ready:
-  kubectl -n {{ .Release.Namespace }} exec deploy/api -c llm-guard -- \
-    env METRICS_ADDRESS= /app/llm_guard config/config.json \
-    --create-admin admin@{{ .Values.env }}.{{ .Values.baseDomain }} 'change-me'
 
 NOTE: credentials here are TEST defaults (see values.yaml credentials:). For a
 sensitive env, override all of them via --set.

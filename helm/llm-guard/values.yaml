@@ -81,7 +81,7 @@ pdb:
 # namespace names (ingress-nginx, monitoring, db) that vary per cluster.
 # Before flipping to true in production:
 #   1. Confirm your ingress-controller namespace and update fromSelectors.
-#   2. Confirm where Postgres/Redis/Kafka live; list egress targets by
+#   2. Confirm where Postgres/Redis live; list egress targets by
 #      podSelector or namespaceSelector (not CIDR — it ties the manifest
 #      to a single environment).
 #   3. Test in a staging namespace first — a wrong NetworkPolicy silently
@@ -100,7 +100,7 @@ networkPolicy:
             kubernetes.io/metadata.name: monitoring
   egress:
     extra:
-      # Allow egress to Postgres, Redis, Kafka by namespace/podSelector as appropriate.
+      # Allow egress to Postgres and Redis by namespace/podSelector as appropriate.
       - to:
           - namespaceSelector:
               matchLabels:
@@ -129,7 +129,6 @@ serviceMonitor:
 # ---------------------------------------------------------------
 monitoring:
   alertsEnabled: false
-  jobsAlerts: false         # Include jobs/DLQ alerts (requires Jobs enabled)
   alertLabels: {}           # Extra labels applied to every rule (e.g. team)
   # Selector used on every PromQL expression. Must match how your cluster's
   # ServiceMonitor / scrape relabel config labels targets. Common shapes:
@@ -144,11 +143,8 @@ monitoring:
   thresholds:
     errorRate: 0.01                 # Fraction of 5xx allowed (1 %)
     latencyP99Sec: 1                # p99 seconds
-    dlqDepth: 10                    # total job_dlq_depth above this pages
-    queueDepth: 100                 # total jobs_queue_depth above this warns
     dbPoolSaturation: 0.9           # db_pool_active/size ratio above this warns (90 %)
     replicaLagSec: 10               # read-replica lag (s) above this warns
-    dlqPerTypeDepth: 5              # single-type DLQ depth that pages
     retriesExhaustedPerSec: 0.5     # sustained "gave up" retries per second
 
 # ---------------------------------------------------------------
@@ -168,8 +164,6 @@ externalSecrets:
     #   remoteRef: { key: prod/app/db, property: password }
     # - secretKey: redis-password
     #   remoteRef: { key: prod/app/redis, property: password }
-    # - secretKey: jwt-secret
-    #   remoteRef: { key: prod/app/auth, property: jwt_secret }
 
 # ---------------------------------------------------------------
 # External PostgreSQL connection
@@ -212,81 +206,6 @@ externalRedis:
   poolSize: 10
 
 # ---------------------------------------------------------------
-# External Kafka (optional messaging)
-# Env vars set: MESSAGING_ENABLED, KAFKA_BROKERS,
-#               KAFKA_PRODUCER_ENABLED, KAFKA_PRODUCER_ID,
-#               KAFKA_CONSUMER_ENABLED, KAFKA_GROUP_ID
-# ---------------------------------------------------------------
-externalKafka:
-  enabled: false
-  brokers: "kafka:9092"
-  producerEnabled: false
-  producerId: llm_guard_producer
-  consumerEnabled: false
-  consumerGroupId: cpp_consumer_group
-
-# ---------------------------------------------------------------
-# Jobs configuration (disabled on the API by default — use llm-guard-worker chart)
-# Env vars set: JOBS_ENABLED, JOBS_RESULT_TTL, JOBS_MAX_RETRIES
-# ---------------------------------------------------------------
-jobs:
-  enabled: false
-  resultTtl: 86400
-  maxRetries: 3
-
-# ---------------------------------------------------------------
-# Content module (posts/uploads/sitemap) — disabled by default, same on/off
-# pattern as Jobs above. API-side only, no llm-guard-worker equivalent.
-# Env vars set: CONTENT_ENABLED
-#
-# This chart has no values-driven API_PUBLIC_PATHS override today. If a
-# deployment injects one anyway (e.g. via a raw env override outside this
-# chart's schema), enabling content here also requires adding its public
-# paths (/posts/*, /sitemap.xml, /api/v1/public/posts,
-# /api/v1/public/posts/*, /uploads/*) to that override — see docs/CONFIG.md.
-# ---------------------------------------------------------------
-content:
-  enabled: false
-
-# ---------------------------------------------------------------
-# Rate limiting — Redis-backed throttle applied by the middleware chain
-# (notably on /api/auth/login). The C++ code defaults RATE_LIMIT_ENABLED to
-# FALSE, so this MUST be set true in prod or every pod runs unthrottled.
-# fail_open=true means a Redis outage degrades to allow (not block) traffic.
-# Keys mirror config.json "rate_limit". Env: RATE_LIMIT_ENABLED,
-# RATE_LIMIT_REQUESTS, RATE_LIMIT_WINDOW_SEC, RATE_LIMIT_SCOPE,
-# RATE_LIMIT_TRUST_PROXY, RATE_LIMIT_TRUSTED_PROXY_COUNT, RATE_LIMIT_FAIL_OPEN,
-# RATE_LIMIT_WHITELIST
-# ---------------------------------------------------------------
-rateLimit:
-  enabled: false           # set true in prod (values-prod.yaml does)
-  requests: 60             # allowed requests per window
-  windowSec: 60            # sliding window length in seconds
-  scope: ip_or_user        # ip | user | ip_or_user
-  # Behind an ingress/proxy, set trustProxy=true and trustedProxyCount to the
-  # number of proxies in front so the real client IP is taken from
-  # X-Forwarded-For instead of the proxy's address.
-  trustProxy: false
-  trustedProxyCount: 1
-  failOpen: true           # Redis down → allow (don't blackhole) requests
-  whitelist: ""            # comma-separated IPs/subjects exempt from limiting
-
-# ---------------------------------------------------------------
-# Idempotency — de-duplicates retried mutating requests carrying an
-# Idempotency-Key header (Redis-backed). The C++ code defaults
-# IDEMPOTENCY_ENABLED to FALSE; set true in prod to make POST retries safe.
-# Keys mirror config.json "idempotency". Env: IDEMPOTENCY_ENABLED,
-# IDEMPOTENCY_TTL_SEC, IDEMPOTENCY_LOCK_TTL_SEC, IDEMPOTENCY_MAX_BODY_KB,
-# IDEMPOTENCY_MAX_RESPONSE_KB
-# ---------------------------------------------------------------
-idempotency:
-  enabled: false           # set true in prod to enable retry de-duplication
-  ttlSec: 86400            # how long a stored response is replayed (1 day)
-  lockTtlSec: 30           # lock TTL while the first request is in flight
-  maxBodyKb: 1024          # skip caching requests with bodies above this
-  maxResponseKb: 256       # skip caching responses above this
-
-# ---------------------------------------------------------------
 # Application configuration
 # Env vars set: LOG_LEVEL, LOG_NAME, SERVICE_NAME, SERVER_THREADS
 # ---------------------------------------------------------------
@@ -300,82 +219,11 @@ server:
   threads: 4               # Drogon event-loop threads (SERVER_THREADS)
 
 # ---------------------------------------------------------------
-# Auth — AUTH_MODE + JWT signing + session cookies.
-# IMPORTANT: login (mint_session) REQUIRES a non-empty jwtSecret even when
-# mode=none — without it the API returns "Could not mint session". Set
-# mode=jwt to also enforce auth on protected routes, and cookies.enabled=true
-# so login actually sets the __Host-* cookies the SPA relies on.
-# Keep jwtSecret/issuer/audience in sync with the llm-guard-worker chart (it signs
-# the same transactional-email link tokens).
-# Env: AUTH_MODE, JWT_SECRET, JWT_ISSUER, JWT_AUDIENCE, AUTH_COOKIES_ENABLED,
-#      AUTH_COOKIE_SECURE, AUTH_COOKIE_SAMESITE
-# ---------------------------------------------------------------
-auth:
-  mode: jwt            # none | bearer | jwt — default jwt so a bare subchart install never ships a public API; an empty jwtSecret then fail-closes at boot
-  jwtSecret: ""        # HS256 signing key — set via --set auth.jwtSecret=...
-  jwtIssuer: ""
-  jwtAudience: ""
-  cookies:
-    enabled: false     # true → login sets __Host-access / __Host-refresh
-    secure: true       # required for __Host- cookies (must be served over HTTPS)
-    samesite: Lax
-    # Cookie names. Must match the SPA expectation (__Host-* prefix). NOTE: the
-    # __Host- prefix REQUIRES secure=true — with secure=false a __Host- cookie is
-    # silently dropped by the browser. If you must run cookies over plain HTTP in
-    # dev, rename these (e.g. "access" / "refresh") AND set secure=false together.
-    access: __Host-access
-    refresh: __Host-refresh
-
-# ---------------------------------------------------------------
-# Application — public URL/name the API renders into transactional email links
-# when it sends inline (jobs disabled). Keep aligned with the llm-guard-worker chart,
-# which renders the same links when MAIL_VIA_JOBS routes sends through the queue.
-# Env vars set: APP_BASE_URL, APP_NAME
+# Application identity
+# Env vars set: APP_ENV
 # ---------------------------------------------------------------
 app:
-  env: production      # APP_ENV — arms the boot-time prod-safety guard (refuses auth.mode=none in prod)
-  baseUrl: "https://app.example.com"  # base for confirm/reset links in emails
-  name: App
-
-# ---------------------------------------------------------------
-# Mail — with jobs.enabled=false (the API default) the API delivers
-# transactional email INLINE on the request thread, so it needs the same SMTP
-# config the worker would otherwise use. With jobs.enabled=true the API only
-# enqueues and the llm-guard-worker chart does the delivery — leave mail.enabled here
-# as you see fit but set mail.viaJobs=true so the API enqueues instead of
-# sending inline.
-# Env vars set: MAIL_ENABLED, MAIL_VIA_JOBS, MAIL_SMTP_HOST, MAIL_SMTP_PORT,
-#               MAIL_SMTP_USERNAME, MAIL_SMTP_PASSWORD, MAIL_SMTP_USE_TLS,
-#               MAIL_FROM, MAIL_FROM_NAME, MAIL_SUBJECT_PREFIX
-# ---------------------------------------------------------------
-mail:
-  enabled: false
-  viaJobs: false   # standalone API sends inline; set true when running llm-guard-worker
-  smtpHost: smtp.example.com
-  smtpPort: 587
-  smtpUsername: ""
-  smtpPassword: ""  # Set via --set or external secret (sourced into MAIL_SMTP_PASSWORD)
-  smtpUseTls: true
-  from: noreply@example.com
-  fromName: App
-  subjectPrefix: "[App] "
-
-# ---------------------------------------------------------------
-# Uploads storage (content module). local = pod-local disk (ephemeral, and
-# NOT shared between replicas — fine for dev, wrong for replicaCount > 1);
-# s3 = any S3-compatible store (MinIO, AWS).
-# Env vars set: STORAGE_BACKEND, STORAGE_PUBLIC_BASE_URL, S3_ENDPOINT,
-#               S3_REGION, S3_BUCKET, S3_ACCESS_KEY, S3_SECRET_KEY
-# ---------------------------------------------------------------
-storage:
-  backend: local          # local | s3
-  publicBaseUrl: ""       # e.g. https://s3.example.com/bucket
-  s3:
-    endpoint: ""          # e.g. http://minio.minio.svc.cluster.local:9000
-    region: us-east-1
-    bucket: ""
-    accessKey: ""
-    secretKey: ""         # via --set or external secret (sourced into S3_SECRET_KEY)
+  env: production      # APP_ENV — arms the boot-time prod-safety warnings
 
 # ---------------------------------------------------------------
 # Graceful shutdown

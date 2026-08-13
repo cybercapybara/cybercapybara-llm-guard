@@ -23,18 +23,6 @@ scrape_configs:
           service: llm-guard
           role: api
 
-  # llm-guard-worker (background jobs). Exposes /metrics on :9090 inside the
-  # worker container too — the host port is remapped to 9190 in compose to
-  # avoid clashing with the app, but prometheus reaches it over the shared
-  # docker network directly.
-  - job_name: llm_guard_worker
-    metrics_path: /metrics
-    static_configs:
-      - targets: ['worker:9090']
-        labels:
-          service: llm-guard-worker
-          role: worker
-
   # PostgreSQL — requires the `postgres-exporter` sidecar (profile:
   # with-monitoring). When the sidecar isn't running this target is "down"
   # and no samples show up; the dashboard panels gracefully report "No data".
@@ -45,25 +33,9 @@ scrape_configs:
           service: postgres
           role: primary
 
-  # Read replica — requires both with-replica (exporter sidecar) and
-  # with-monitoring. Down target when the replica profile is off: expected.
-  - job_name: postgres_replica
-    static_configs:
-      - targets: ['postgres-replica-exporter:9187']
-        labels:
-          service: postgres
-          role: replica
-
   # Redis — uses `redis-exporter`, same conditional story as postgres.
   - job_name: redis
     static_configs:
       - targets: ['redis-exporter:9121']
         labels:
           service: redis
-
-  # Kafka — JMX exporter sidecar (with-kafka + with-monitoring).
-  - job_name: kafka
-    static_configs:
-      - targets: ['kafka-exporter:9308']
-        labels:
-          service: kafka

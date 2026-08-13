@@ -81,24 +81,6 @@ spec:
             summary: "DB connection pool >{{ mulf (.Values.monitoring.thresholds.dbPoolSaturation | default 0.9) 100.0 | int }}% saturated ({{`{{ $labels.pool }}`}} pool)"
             description: "Increase externalDatabase.poolSize or scale replicas to reduce connection pressure."
 
-        {{- if .Values.monitoring.jobsAlerts }}
-        # jobs_queue_depth is only published when Jobs is enabled — gate this with
-        # the sibling DLQ alerts so a Jobs-less API doesn't ship a dead rule.
-        - alert: CppApiJobsQueueBacklog
-          # Fires when the total waiting-jobs queue stays elevated for 10 m —
-          # the leading indicator that workers can't keep up with submission rate.
-          expr: |
-            sum(jobs_queue_depth{ {{ $selector }}, type="_total"}) > {{ .Values.monitoring.thresholds.queueDepth | default 100 }}
-          for: 10m
-          labels:
-            severity: warning
-            service: {{ include "llm-guard.fullname" . }}
-          annotations:
-            runbook_url: "https://gitlab.com/example.com/llm-guard/-/blob/master/docs/RUNBOOK.md#dlq"
-            summary: "Jobs queue backlog above {{ .Values.monitoring.thresholds.queueDepth | default 100 }}"
-            description: "Waiting-jobs queue is growing — scale the llm-guard-worker deployment or investigate slow job handlers."
-        {{- end }}
-
         - alert: CppApiHighLatencyP99
           expr: |
             histogram_quantile(
@@ -162,34 +144,7 @@ spec:
           annotations:
             runbook_url: "https://gitlab.com/example.com/llm-guard/-/blob/master/docs/RUNBOOK.md#retries"
             summary: "Retries frequently exhausted"
-            description: "Downstream is likely degraded — investigate database / cache / messaging health."
-
-        {{- if .Values.monitoring.jobsAlerts }}
-        - alert: CppApiJobsDlqGrowing
-          # jobs_dlq_depth is labeled by type; the "_total" label is the aggregate.
-          expr: |
-            sum(jobs_dlq_depth{ {{ $selector }}, type="_total"}) > {{ .Values.monitoring.thresholds.dlqDepth | default 10 }}
-          for: 10m
-          labels:
-            severity: warning
-            service: {{ include "llm-guard.fullname" . }}
-          annotations:
-            runbook_url: "https://gitlab.com/example.com/llm-guard/-/blob/master/docs/RUNBOOK.md#dlq"
-            summary: "Dead-letter queue depth over threshold"
-            description: "Investigate repeatedly-failing jobs — inspect /api/jobs/dlq and decide whether to requeue or discard."
-
-        - alert: CppApiJobsDlqSpikeByType
-          # One job type alone is accumulating a DLQ backlog fast.
-          expr: |
-            max by (type) (jobs_dlq_depth{ {{ $selector }}, type!="_total"}) > {{ .Values.monitoring.thresholds.dlqPerTypeDepth | default 5 }}
-          for: 10m
-          labels:
-            severity: warning
-            service: {{ include "llm-guard.fullname" . }}
-          annotations:
-            runbook_url: "https://gitlab.com/example.com/llm-guard/-/blob/master/docs/RUNBOOK.md#dlq"
-            summary: "DLQ growing for job type {{`{{ $labels.type }}`}}"
-            description: "A specific job type keeps failing all retries — bug in the handler or a chronically-bad input."
+            description: "Downstream is likely degraded — investigate database / cache health."
 
         {{- if .Values.backup.enabled }}
         - alert: CppApiBackupJobFailed
@@ -218,6 +173,5 @@ spec:
             runbook_url: "https://gitlab.com/example.com/llm-guard/-/blob/master/docs/RUNBOOK.md#backup"
             summary: "No recent Postgres backup"
             description: "No successful backup completed within the staleness window — the CronJob may be broken or no longer scheduled."
-        {{- end }}
         {{- end }}
 {{- end }}

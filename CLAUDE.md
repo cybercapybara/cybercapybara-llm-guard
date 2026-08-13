@@ -1,18 +1,17 @@
 # CLAUDE.md — agent guide for this repo
 
-C++20 REST service template: Drogon + PostgreSQL + Redis, vcpkg/CMake,
-React SPA in `frontend/`, Helm charts in `helm/`. `docs/INDEX.md` is the
-map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
+llm-guard — a C++20 LLM-guardrails masking proxy built on Drogon +
+PostgreSQL + Redis, vcpkg/CMake, Helm charts in `helm/`. `docs/INDEX.md` is
+the map of all documentation; `docs/CONVENTIONS.md` is the pattern reference.
+
+The service is currently a lean base: only the health/meta routes exist. The
+masking-proxy surface lands in later phases.
 
 ## Prime directive: scaffold, don't hand-roll
 
-- Full CRUD resource: `./scripts/new-resource.sh Name` — migration + DTO +
-  repository + controller + registry row + OpenAPI block + integration test.
 - Single endpoint: `./scripts/new-endpoint.sh FooController Get /api/v1/foo
   [--with-test] [--patch-openapi]`
-- Background job: `./scripts/new-job.sh <type>`
 - Migration: `make new-migration SLUG=<slug>`
-- React page: `./scripts/new-react-page.sh`
 
 The generators encode the invariants below — their output passes the CI
 gates by construction. Hand-rolled versions usually don't.
@@ -27,7 +26,7 @@ gates by construction. Hand-rolled versions usually don't.
    `new-endpoint.sh` rejects unversioned paths. Probe routes (`/healthz`,
    `/ready`, `/health`, `/metrics`) stay unversioned.
 3. **Header-only src/ (ADR 0003):** implementation lives in `.hpp`; don't
-   add `.cpp` files except the existing binary entry points.
+   add `.cpp` files except the existing binary entry point (`src/main.cpp`).
 4. **One error shape:** `{error, status, message, ...}` everywhere — use
    `ErrorResponse::*` / `Api::Validation::*`, never hand-rolled error JSON.
 5. **Test buckets by directory** (`scripts/check-test-buckets.sh`):

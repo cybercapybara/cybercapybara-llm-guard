@@ -3,7 +3,7 @@
 # Usage:
 #   ./scripts/bench.sh                              # all presets, default endpoint
 #   ./scripts/bench.sh baseline                     # single preset
-#   ./scripts/bench.sh baseline /api/v1/jobs         # single preset + custom endpoint
+#   ./scripts/bench.sh baseline /health              # single preset + custom endpoint
 #   ./scripts/bench.sh all /healthz -c100 -d10s     # all presets, custom wrk args
 #
 # Environment:
@@ -42,15 +42,16 @@ preset="${1:-all}"
 # Default endpoint:
 #   - pool* presets vary the DB/Redis pool size, so they MUST hit a path that
 #     touches the database or the pool size makes no difference (and the run
-#     just measures Drogon + middleware). /api/v1/jobs is the cheapest such path
-#     when JOBS_ENABLED; falls back to /healthz for baseline/threads presets.
+#     just measures Drogon + middleware). /health rolls the registered health
+#     probes (database + cache), so it is the cheapest such path today;
+#     /healthz stays the pure-framework baseline.
 #   - Override with the 2nd arg for anything else.
 # NB: the sync-DB model caps effective concurrency at server.threads, so
 # pool_size > threads is inert — pool20/pool50 only differ under a DB endpoint
 # AND threads >= pool. See docs/CONFIG.md.
 default_endpoint="/healthz"
 case "$preset" in
-    pool20 | pool50 | max) default_endpoint="/api/v1/jobs" ;;
+    pool20 | pool50 | max) default_endpoint="/health" ;;
 esac
 endpoint="${2:-$default_endpoint}"
 shift 2 2>/dev/null || true

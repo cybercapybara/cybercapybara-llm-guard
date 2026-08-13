@@ -93,7 +93,7 @@ inline PageParams parse_page_params(const drogon::HttpRequestPtr& req, int defau
  *        redaction. Replaces UUID segments with ":id" and the single-use
  *        token after the account confirm/reset/change-email routes with
  *        ":token".
- * @details Two jobs in one: (a) raw ids/tokens would mint a new Prometheus
+ * @details Two purposes in one: (a) raw ids/tokens would mint a new Prometheus
  *          label and Jaeger operation per entity (cardinality blow-up);
  *          (b) the account tokens are credentials — logging the raw path
  *          would drop password-reset tokens into the access log. A manual

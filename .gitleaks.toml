@@ -4,7 +4,6 @@
 [allowlist]
 description = "Local dev artifacts (gitignored)"
 paths = [
-  '''docker/\.jwt-dev-secret''',
   # Per-environment Helm overlays — hold real db/redis/jwt secrets but are
   # gitignored (local only). Allowlisted so a stray scan of the work tree
   # doesn't trip on them; they must never be committed.

@@ -40,7 +40,6 @@ coverage/
 *.gcov
 
 # Local dev artefacts
-.dev-token
 compile_commands.json
 
 # Documentation
@@ -117,10 +116,9 @@ docker-compose.override.yml
 *.crt
 secrets/
 
-# Helm values with secrets (keep chart defaults under helm/llm-guard/, llm-guard-worker/).
+# Helm values with secrets (keep chart defaults under helm/llm-guard/).
 # Per-cluster overrides go in untracked files matching the patterns below.
 helm/values.yaml
-helm/values-worker.yaml
 helm/values.*.yaml
 helm/*.local.yaml
 helm/values.secret.yaml
@@ -132,8 +130,6 @@ helm/**/values-prod.yaml
 !helm/**/values-prod.example.yaml
 # Helm dependency build artifacts (regenerated via `helm dependency build`).
 helm/*/charts/
-# Auto-generated dev JWT secret for make up-everything
-docker/.jwt-dev-secret
 
 # Demo env generated secrets (never commit)
 helm/cpp-env/.demo-secrets.env

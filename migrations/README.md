@@ -4,8 +4,7 @@ Drop numbered `.sql` files here — the template's `MigrationRunner` picks them
 up on boot, applies any that aren't already in `schema_migrations`, and
 records what it did. Naming: `NNN_description.sql` (e.g. `001_users.sql`).
 
-A starter schema lives in [`docs/EXAMPLES.md`](../docs/EXAMPLES.md) if you
-want a worked example.
+`docs/CONVENTIONS.md` has the migration conventions in context.
 
 ## Generating a new migration
 
@@ -31,15 +30,7 @@ The script picks the next free `NNN`, slugifies the description, and writes a
 - `make migrate` (Docker) / `make migrate-local` (native) — wrappers around
   the above.
 
-## Seed data
-
-Optional fixtures live in `migrations/seeds/*.sql`. They are **never** run
-automatically — apply them manually with `make seed` after the schema is up.
-Use them for dev-only test users, sample rows, etc. Do not encode anything
-the schema relies on; that belongs in a numbered migration.
-
 ## Ignored
 
 Anything outside the top level of this directory is skipped by the runner,
-so the `seeds/` subfolder and any `archive/` directory won't be auto-applied
-on boot.
+so an `archive/` subfolder won't be auto-applied on boot.

@@ -13,8 +13,6 @@ services:
       - "19090:9090"
     environment:
       LOG_LEVEL: debug
-      # Uncomment to develop with auth disabled.
-      # AUTH_MODE: none
 
   postgres:
     # Example: bind to a different host port so it doesn't clash with a

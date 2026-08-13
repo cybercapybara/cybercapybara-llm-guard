@@ -30,7 +30,7 @@ namespace detail {
 
 // RAII helper: opens a `db.<op>` child span if tracing is up. The parent
 // comes from the active OTel RuntimeContext: the HTTP tracing middleware
-// (Api.hpp) and the worker's job span both attach their span there, so
+// (Api.hpp) attaches its span there, so
 // db.* spans nest under the request / job instead of floating as orphan
 // single-span traces. `pool` says which pool actually served the call —
 // the answer to "are reads really hitting the replica?" lives right on
@@ -126,7 +126,7 @@ private:
 // depending on prometheus directly. The pool label is the live answer to
 // "are reads actually hitting the replica?" on dashboards.
 using QueryMetricFn = void (*)(const char* op, const char* pool);
-// Bound on the main thread, read from every IO/worker thread — atomic to
+// Bound on the main thread, read from every IO thread — atomic to
 // publish the pointer without a data race.
 inline std::atomic<QueryMetricFn> query_metric_sink_{nullptr};
 

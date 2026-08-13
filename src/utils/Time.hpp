@@ -3,8 +3,8 @@
  * @brief Epoch-time helpers shared across modules.
  *
  * Centralizes the `duration_cast<...>(system_clock::now().time_since_epoch())`
- * idiom that was previously open-coded in Auth, Jobs, Tokens, RateLimit and
- * the auth controllers. One source of truth for "what time is it (epoch)".
+ * idiom that was previously open-coded across several modules.
+ * One source of truth for "what time is it (epoch)".
  */
 
 #pragma once

@@ -52,7 +52,7 @@ Closes #123
 ```
 
 Types: `feat`, `fix`, `refactor`, `perf`, `docs`, `test`, `build`, `ci`,
-`chore`. Scope is optional but recommended (e.g. `feat(auth):`, `fix(jobs):`).
+`chore`. Scope is optional but recommended (e.g. `feat(api):`, `fix(cache):`).
 
 ## Code style
 
@@ -107,6 +107,6 @@ When you change a CI gate, update the gate list in `CLAUDE.md` in the same PR.
 
 Semver, tagged on `master`. A tag that matches `v*.*.*` triggers
 `.github/workflows/release.yml`, which builds multi-arch images for both
-the app and worker targets, pushes them to `ghcr.io/<owner>/<repo>` (and
-`-worker`), and opens a draft GitHub Release seeded from auto-generated
+the app target, pushes it to `ghcr.io/<owner>/<repo>`, and opens a draft
+GitHub Release seeded from auto-generated
 commit notes. Update `CHANGELOG.md` under `## [Unreleased]` before tagging.

@@ -1,7 +1,6 @@
 {
   "app": {
-    "name": "${APP_NAME:-App}",
-    "base_url": "${APP_BASE_URL:-http://localhost:8080}"
+    "env": "${APP_ENV:-development}"
   },
   "server": {
     "host": "0.0.0.0",
@@ -58,105 +57,12 @@
       ]
     }
   },
-  "mail": {
-    "enabled": "${MAIL_ENABLED:-false}",
-    "via_jobs": "${MAIL_VIA_JOBS:-true}",
-    "smtp_host": "${MAIL_SMTP_HOST:-mailpit}",
-    "smtp_port": "${MAIL_SMTP_PORT:-1025}",
-    "smtp_username": "${MAIL_SMTP_USERNAME:-}",
-    "smtp_password": "${MAIL_SMTP_PASSWORD:-}",
-    "smtp_use_tls": "${MAIL_SMTP_USE_TLS:-false}",
-    "from": "${MAIL_FROM:-noreply@example.com}",
-    "from_name": "${MAIL_FROM_NAME:-App}",
-    "subject_prefix": "${MAIL_SUBJECT_PREFIX:-[App] }",
-    "timeout_sec": 30
-  },
-  "messaging": {
-    "enabled": false,
-    "kafka": {
-      "brokers": "localhost:9092",
-      "producer": {
-        "enabled": false,
-        "client_id": "llm_guard_producer"
-      },
-      "consumer": {
-        "enabled": false,
-        "group_id": "cpp_consumer_group",
-        "topics": [
-          "example_topic"
-        ]
-      }
-    }
-  },
-  "api": {
-    "public_paths": "/,/healthz,/ready,/health,/metrics,/api/v1/docs,/api/v1/openapi.yaml,/api/v1/auth/login,/api/v1/auth/register,/api/v1/auth/refresh,/api/v1/account/confirm/*,/api/v1/account/reset-password-request,/api/v1/account/reset-password/*,/api/v1/account/change-email/*"
-  },
   "docs": {
     "enabled": "${DOCS_ENABLED:-false}",
     "openapi_path": "docs/openapi.yaml"
   },
   "security": {
     "hsts": "${SECURITY_HSTS:-false}",
-    "hsts_max_age": 31536000,
-    "csrf": {
-      "enabled": "${SECURITY_CSRF_ENABLED:-false}",
-      "cookie_name": "csrf-token",
-      "header_name": "X-CSRF-Token"
-    }
-  },
-  "auth": {
-    "mode": "${AUTH_MODE:-none}",
-    "bearer_token": "${AUTH_BEARER_TOKEN:-}",
-    "cookies": {
-      "enabled": false,
-      "access_name": "__Host-access",
-      "refresh_name": "__Host-refresh",
-      "access_ttl_sec": 900,
-      "refresh_ttl_sec": 604800,
-      "secure": true,
-      "samesite": "Lax",
-      "refresh_revocation_prefix": "auth:refresh:"
-    },
-    "jwt": {
-      "secret": "${JWT_SECRET:-}",
-      "issuer": "${JWT_ISSUER:-}",
-      "audience": "${JWT_AUDIENCE:-}",
-      "leeway_sec": 30,
-      "roles_claim": "roles",
-      "scopes_claim": "scope",
-      "secrets": {}
-    }
-  },
-  "idempotency": {
-    "enabled": false,
-    "ttl_sec": 86400,
-    "lock_ttl_sec": 30,
-    "max_body_kb": 1024,
-    "max_response_kb": 256
-  },
-  "rate_limit": {
-    "enabled": false,
-    "requests": 60,
-    "window_sec": 60,
-    "protected_requests": 10,
-    "protected_window_sec": 60,
-    "scope": "ip_or_user",
-    "trust_proxy": false,
-    "fail_open": true,
-    "whitelist": ""
-  },
-  "jobs": {
-    "enabled": false,
-    "result_ttl": 86400,
-    "max_retries": 3
-  },
-  "worker": {
-    "id": "worker-1",
-    "types": [
-      "default"
-    ],
-    "concurrency": 2,
-    "health_port": 9091,
-    "brpop_timeout": 5
+    "hsts_max_age": 31536000
   }
 }

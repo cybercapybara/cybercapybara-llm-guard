@@ -20,18 +20,16 @@ Please provide:
 In scope:
 
 - Remote code execution or memory safety issues in the C++ code.
-- Authentication / authorization bypasses (JWT validation, RBAC).
-- Rate-limit / idempotency bypasses.
 - Secret leakage via logs, error responses, or crash dumps.
+- Bypasses of any request-gating middleware.
 - Supply-chain risks in dependencies declared in `vcpkg.json` or `CMakeLists.txt`.
 
 Out of scope:
 
 - Issues in third-party libraries already reported upstream (please link to the
   CVE; we will bump the version).
-- Findings in demo/example code that does not run in production.
 - Denial-of-service via unbounded client input against a dev deployment
-  without rate-limiting enabled.
+  behind no reverse proxy.
 
 ## Disclosure
 
@@ -48,28 +46,25 @@ incidents — a Redis outage is not the same as a database outage.
 
 | Middleware             | When it fails | Behavior  | Why |
 |------------------------|---------------|-----------|-----|
-| Auth (JWT / Bearer)    | Secret missing at startup | Refuses to start | Cannot accept traffic with auth disabled — would silently authorize all requests. |
-| Auth (JWT / Bearer)    | Per-request validation throws | **Fail closed** (401) | Defense in depth — never authorize a request whose validation we couldn't complete. |
-| Rate limit             | Redis down | **Fail open** (allow, log warn) | Configurable via `rate_limit.fail_open`. Default is open: a stuck Redis would otherwise turn into a self-inflicted DoS. |
-| Idempotency            | Redis down | **Fail open** (process request normally) | Hard-failing here would block all mutating traffic on a dependency that's only there for retry safety. The trade-off: a duplicate request during the outage may be processed twice. |
+| Content-type gate      | Non-JSON mutation body | **Fail closed** (415) | A malformed body must not reach a handler that assumes JSON. |
 | Cache (read path)      | Redis down | **Fail open** (treat as miss, hit DB) | Cache is an optimization, not a correctness layer. |
 | Cache (write path)     | Redis down | Skip silently (warn) | Same. |
 | Database (any)         | Postgres down | **Fail closed** | The only authoritative store — there's no safe degraded mode. |
 | Migrations on startup  | Postgres down | Refuse to start | A misapplied schema is worse than no service. |
 | Tracing / metrics      | OTLP endpoint down | Drop spans/metrics, keep serving | Observability is non-blocking by design. |
 
-**Operational implication:** during a Redis outage, attackers can bypass
-rate limiting and idempotency. If your threat model can't tolerate that,
-flip `rate_limit.fail_open` to `false` and accept that a Redis incident
-will return 503s.
+**Operational implication:** during a Redis outage the service keeps serving
+from Postgres with cache misses; a Postgres outage takes it out of rotation.
+Anything added later that gates requests on Redis must declare its own
+fail-open/fail-closed choice in this table.
 
 ## Hardening checklist for deployments
 
 Before shipping this template to production:
 
-- [ ] `auth.mode=jwt` with a non-default `JWT_SECRET` (or RS256 public key).
-- [ ] `rate_limit.enabled=true`.
-- [ ] `idempotency.enabled=true` for non-idempotent endpoints.
+- [ ] `app.env=production` so the boot-time config warnings are armed.
+- [ ] `docs.enabled=false` (no public Swagger UI).
+- [ ] `DATABASE_REQUIRE_SECURE_PASSWORD=true` with a strong `DATABASE_PASSWORD`.
 - [ ] Secrets sourced from External Secrets / Vault, not inline in values.yaml.
 - [ ] `networkPolicy.enabled=true` with selectors tuned for the cluster.
 - [ ] TLS termination at the ingress (cert-manager or equivalent).

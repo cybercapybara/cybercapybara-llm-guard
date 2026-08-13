@@ -8,16 +8,3 @@ baseDomain: ci.example.test
 credentials:
   dbPassword: "ci-db-pass"
   redisPassword: "ci-redis-pass"
-  jwtSecret: "ci-jwt-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-llm-guard:
-  mail:
-    enabled: true # force the {{- if .Values.mail.enabled }} branch so MAIL_VIA_JOBS renders
-    viaJobs: true
-  auth:
-    mode: jwt
-    jwtSecret: "ci-jwt-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-llm-guard-worker:
-  app:
-    baseUrl: "https://app.ci.ci.example.test"
-  auth:
-    jwtSecret: "ci-jwt-secret-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"

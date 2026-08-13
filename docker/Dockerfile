@@ -1,7 +1,6 @@
-# Multi-stage Dockerfile for C++ API Template
+# Multi-stage Dockerfile for llm-guard
 
 ARG APP_BINARY=llm_guard
-ARG WORKER_BINARY=llm_guard_worker
 ARG TEST_BINARY=llm_guard_tests_unit
 
 # Stage 1: Build environment
@@ -15,7 +14,6 @@ RUN apt-get update && apt-get install -y \
     git \
     pkg-config \
     libssl-dev \
-    libsodium-dev \
     libcurl4-openssl-dev \
     zlib1g-dev \
     libjsoncpp-dev \
@@ -158,14 +156,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     libhiredis1.1.0 \
     libjsoncpp25 \
-    libsodium23 \
     libcurl4t64 \
     curl \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
     # ca-certificates: --no-install-recommends skips it, and without the CA
-    # bundle every outbound TLS from the app fails — first hit in prod was the
-    # Mailer's SMTP STARTTLS to Brevo (curl: "Problem with the SSL CA cert").
+    # bundle every outbound TLS from the app fails (curl: "Problem with the
+    # SSL CA cert").
 
 # Create app user (noble's base image already has uid 1000 "ubuntu" — drop it first)
 RUN userdel -r ubuntu 2>/dev/null || true && \
@@ -183,8 +180,6 @@ ENV APP_BINARY=${APP_BINARY}
 COPY --from=builder --chown=appuser:appuser /app/build/${APP_BINARY} /app/
 COPY --from=builder --chown=appuser:appuser /app/config /app/config/
 COPY --from=builder --chown=appuser:appuser /app/migrations /app/migrations/
-# Email templates are loaded at runtime from templates/email (cwd-relative).
-COPY --from=builder --chown=appuser:appuser /app/templates /app/templates/
 
 USER appuser
 
@@ -194,25 +189,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:8080/healthz || exit 1
 
 ENTRYPOINT ["sh", "-c", "exec /app/$APP_BINARY \"$@\"", "--"]
-CMD ["config/config.json"]
-
-# Stage 5: Worker runtime
-FROM runtime-base AS worker-runtime
-ARG WORKER_BINARY=llm_guard_worker
-ENV WORKER_BINARY=${WORKER_BINARY}
-
-COPY --from=builder --chown=appuser:appuser /app/build/${WORKER_BINARY} /app/
-COPY --from=builder --chown=appuser:appuser /app/config /app/config/
-COPY --from=builder --chown=appuser:appuser /app/migrations /app/migrations/
-# Worker jobs can send mail too — same templates as the API runtime.
-COPY --from=builder --chown=appuser:appuser /app/templates /app/templates/
-
-USER appuser
-
-EXPOSE 9091 9090
-
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:9091/healthz || exit 1
-
-ENTRYPOINT ["sh", "-c", "exec /app/$WORKER_BINARY \"$@\"", "--"]
 CMD ["config/config.json"]

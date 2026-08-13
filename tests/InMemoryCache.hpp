@@ -9,7 +9,7 @@
  *
  *        TTLs are accepted but not expired (unit tests don't sleep). For the
  *        same pattern over the data layer, give a repository an interface and
- *        pass a fake — see docs/EXAMPLES.md.
+ *        pass a fake.
  */
 
 #pragma once

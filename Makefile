@@ -27,28 +27,26 @@ COMPOSE_BIN := $(shell docker compose version >/dev/null 2>&1 && echo docker com
 COMPOSE := $(COMPOSE_BIN) -f docker/docker-compose.yml
 # Every optional profile — for targets that must see the WHOLE stack
 # (down/ps/up-everything). Keep in sync with docker-compose.yml profiles.
-ALL_PROFILES := --profile with-replica --profile with-sentinel --profile with-kafka \
-                --profile with-worker --profile with-frontend --profile with-monitoring
+ALL_PROFILES := --profile with-monitoring
 ENV     := --env-file docker/.env
 
-.PHONY: up up-pull up-replica up-sentinel up-kafka up-worker up-full up-monitoring \
-        up-everything up-dev quickstart dev down down-v dev-reset \
+.PHONY: up up-pull up-monitoring up-build quickstart dev down down-v dev-reset \
         test test-unit test-quick test-e2e test-local test-unit-local test-integration-local test-watch \
-        build build-worker build-all build-local warm-cache configure-local compile-commands \
+        build build-local warm-cache configure-local compile-commands \
         watch coverage \
-        logs logs-pretty logs-worker tail-trace ps health routes doctor env-check prod-check \
-        psql redis-cli redis-flush migrate migrate-local migrate-status migrate-reset seed \
-        new-endpoint new-migration ci-local helm-lint \
+        logs logs-pretty tail-trace ps health routes doctor env-check prod-check \
+        psql redis-cli redis-flush migrate migrate-local migrate-status migrate-reset \
+        new-endpoint new-migration ci-local helm-lint helm-validate \
         bench bench-all image push \
         fmt lint-format lint-format-fix lint tidy lint-openapi \
-        smoke jwt dev-token clean clean-logs clean-docs clean-build dist-clean \
+        smoke clean clean-logs clean-docs clean-build dist-clean \
         help
 
 # ── Startup targets ──────────────────────────────────────────────
 
-# up-* targets PULL the prebuilt public images (app/worker/frontend) that
-# GitLab CI publishes on master, then start — no local compile on your mac.
-# Infra images (postgres/redis/kafka) pull as usual; the app uses `--pull
+# up-* targets PULL the prebuilt public image that CI publishes on master, then
+# start — no local compile on your mac.
+# Infra images (postgres/redis) pull as usual; the app uses `--pull
 # missing` so a fork that built its own image (or renamed it) isn't clobbered by
 # the upstream `:latest` — and a fresh clone gets a clear "build it" error rather
 # than silently running someone else's binary. `make up-pull` force-refreshes the
@@ -59,47 +57,11 @@ up:                ## Base stack (app + PostgreSQL + Redis)
 up-pull:           ## Like `up` but force-pull the upstream public images (refresh :latest)
 	$(COMPOSE) $(ENV) up -d --pull always
 
-up-replica:        ## + PostgreSQL streaming read replica
-	$(COMPOSE) --profile with-replica --env-file docker/.env.replica up -d --pull missing
-
-up-sentinel:       ## + Redis Sentinel (3-node HA)
-	$(COMPOSE) --profile with-sentinel --env-file docker/.env.sentinel up -d --pull missing
-
-up-kafka:          ## + Kafka + Zookeeper
-	$(COMPOSE) --profile with-kafka --env-file docker/.env.kafka up -d --pull missing
-
-up-full:           ## Full stack (replica + sentinel + kafka)
-	$(COMPOSE) --profile with-replica --profile with-sentinel --profile with-kafka \
-		--env-file docker/.env.full up -d --pull missing
-
-up-worker:         ## + Background job worker
-	$(COMPOSE) --profile with-worker --env-file docker/.env.worker up -d --pull missing
-
 up-monitoring:     ## + Prometheus + Grafana + Jaeger
 	$(COMPOSE) --env-file docker/.env.monitoring --profile with-monitoring up -d --pull missing
 
-up-everything:     ## Replica + Sentinel + Kafka + Worker + Frontend + monitoring — pulls public images
-	@# AUTH_MODE=jwt needs a secret; the committed env file deliberately ships
-	@# it empty. Generate a per-clone dev secret once (gitignored) — shell env
-	@# always wins over --env-file in compose substitution, incl. an explicit
-	@# JWT_SECRET you may have exported yourself.
-	@if [ ! -f docker/.jwt-dev-secret ]; then \
-		umask 177 && openssl rand -hex 32 > docker/.jwt-dev-secret ; \
-		echo "==> Generated dev JWT secret: docker/.jwt-dev-secret (gitignored)" ; \
-	fi
-	JWT_SECRET=$${JWT_SECRET:-$$(cat docker/.jwt-dev-secret)} \
-	$(COMPOSE) --env-file docker/.env.everything $(ALL_PROFILES) up -d --pull missing
-	@echo "==> app on :8080, SPA on :3001, Mailpit UI on :8025, Grafana on :3000"
-
-up-build:          ## Like up-everything but BUILD images locally (no pull) — for local code changes
-	@if [ ! -f docker/.jwt-dev-secret ]; then \
-		umask 177 && openssl rand -hex 32 > docker/.jwt-dev-secret ; \
-	fi
-	JWT_SECRET=$${JWT_SECRET:-$$(cat docker/.jwt-dev-secret)} \
-	$(COMPOSE) --env-file docker/.env.everything $(ALL_PROFILES) up -d --build
-
-up-dev: up-worker  ## Dev preset: alias for up-worker (jobs/DLQ end-to-end)
-	@echo "==> app on :8080, worker on :9091, metrics on :9090"
+up-build:          ## Like up-monitoring but BUILD the app image locally (no pull) — for local code changes
+	$(COMPOSE) --env-file docker/.env.monitoring $(ALL_PROFILES) up -d --build
 
 quickstart:        ## One-shot: BUILD your code + Postgres + Redis, wait for ready, hit / and /healthz
 	$(COMPOSE) $(ENV) up -d --build
@@ -215,7 +177,7 @@ helm-lint:         ## helm lint + helm template render for both charts
 	done
 	@echo "==> helm-lint: all charts pass"
 
-helm-validate:     ## Render the cpp-env umbrella + assert deploy-path invariants (port/host/mail)
+helm-validate:     ## Render the cpp-env umbrella + assert deploy-path invariants (port/host/probes)
 	@./scripts/check-helm-render.sh
 
 tidy:              ## Run clang-tidy via the builder image (CI-parity)
@@ -244,17 +206,8 @@ warm-cache:        ## Pull a CI-built builder image to skip the cold vcpkg build
 build:             ## Rebuild app image only
 	$(COMPOSE) $(ENV) build app
 
-build-worker:      ## Rebuild worker image only
-	$(COMPOSE) --profile with-worker $(ENV) build worker
-
-build-all:         ## Rebuild both app and worker images
-	$(COMPOSE) --profile with-worker $(ENV) build app worker
-
 logs:              ## Tail app logs
 	$(COMPOSE) logs -f app
-
-logs-worker:       ## Tail worker logs
-	$(COMPOSE) --profile with-worker logs -f worker
 
 logs-pretty:       ## Tail app logs through jq (best-effort; falls back to plain)
 	@if ! command -v jq >/dev/null 2>&1; then \
@@ -339,7 +292,7 @@ coverage:          ## Build with coverage, run tests, emit HTML + fail under COV
 	cmake --preset coverage
 	cmake --build --preset coverage -j
 	@# Run EVERY bucket, not just unit — otherwise the report counts only the
-	@# unit-reachable code and badly understates the DB / cache / auth / jobs
+	@# unit-reachable code and badly understates the DB / cache
 	@# paths that ONLY the integration + e2e buckets exercise. integration/e2e
 	@# need Postgres + Redis (run `make up` first); each is `|| true` so a missing
 	@# sidecar degrades the number instead of aborting the whole report.
@@ -419,7 +372,7 @@ migrate-reset:     ## DESTRUCTIVE: drop the appdb schema and re-apply all migrat
 		"DROP SCHEMA public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO postgres; GRANT ALL ON SCHEMA public TO public;"
 	$(MAKE) migrate
 
-prod-check:        ## Validate production config + env semantics (auth on, fail-closed, secrets)
+prod-check:        ## Validate production config + env semantics (docs off, JSON logs, secrets)
 	@./scripts/prod-check.sh config/config.production.json
 
 env-check:         ## Verify required env vars referenced in config/config.json are set
@@ -440,42 +393,21 @@ new-migration:     ## Generate the next migrations/NNN_<slug>.sql: make new-migr
 	@if [ -z "$(SLUG)" ]; then echo "Usage: make new-migration SLUG=<short_description>"; exit 1; fi
 	./scripts/new-migration.sh $(SLUG)
 
-new-resource:      ## Scaffold a full CRUD resource: make new-resource ENTITY=Product
-	@if [ -z "$(ENTITY)" ]; then echo "Usage: make new-resource ENTITY=Product   (singular PascalCase)"; exit 1; fi
-	./scripts/new-resource.sh $(ENTITY)
-
-new-job:           ## Scaffold a background-job handler: make new-job TYPE=reindex [HANDLER=ReindexJob]
-	@if [ -z "$(TYPE)" ]; then echo "Usage: make new-job TYPE=reindex [HANDLER=ReindexJob]"; exit 1; fi
-	./scripts/new-job.sh $(TYPE) $(HANDLER)
-
 init:              ## Rebrand the template for your fork: make init NAME=my-service [REGISTRY=docker.io/myorg]
 	@if [ -z "$(NAME)" ]; then echo "Usage: make init NAME=my-service [REGISTRY=docker.io/myorg]"; exit 1; fi
 	./scripts/init-project.sh $(NAME) $(REGISTRY)
 
-seed:              ## Apply optional seed fixtures from migrations/seeds/*.sql (idempotent at your risk)
-	@if ! ls migrations/seeds/*.sql >/dev/null 2>&1; then \
-		echo "No fixtures in migrations/seeds/. Drop a *.sql file there and re-run."; exit 0; \
-	fi
-	@for f in migrations/seeds/*.sql ; do \
-		echo "==> applying $$f" ; \
-		$(COMPOSE) exec -T postgres psql -U postgres -d appdb < "$$f" ; \
-	done
+bench:             ## Run benchmark with a preset: make bench P=baseline E=/healthz
+	./scripts/bench.sh $(or $(P),baseline) $(or $(E),/healthz)
 
-# ── Benchmark targets ────────────────────────────────────────────
-
-bench:             ## Run benchmark with a preset: make bench P=baseline E=/api/v1/jobs
-	./scripts/bench.sh $(or $(P),baseline) $(or $(E),/api/v1/jobs)
-
-bench-all:         ## Run all benchmark presets against an endpoint: make bench-all E=/api/v1/jobs
-	./scripts/bench.sh all $(or $(E),/api/v1/jobs)
+bench-all:         ## Run all benchmark presets against an endpoint: make bench-all E=/healthz
+	./scripts/bench.sh all $(or $(E),/healthz)
 
 # ── Image targets ───────────────────────────────────────────────
 
-image:             ## Build and tag Docker images (app + worker)
+image:             ## Build and tag the app Docker image
 	docker build --target runtime -f docker/Dockerfile \
 		-t $(IMAGE):$(GIT_SHA) -t $(IMAGE):latest .
-	docker build --target worker-runtime -f docker/Dockerfile \
-		-t $(IMAGE)-worker:$(GIT_SHA) -t $(IMAGE)-worker:latest .
 
 push:              ## Push Docker images to registry
 	@if [ "$(REGISTRY)" = "docker.io/library" ]; then \
@@ -485,69 +417,11 @@ push:              ## Push Docker images to registry
 	fi
 	docker push $(IMAGE):$(GIT_SHA)
 	docker push $(IMAGE):latest
-	docker push $(IMAGE)-worker:$(GIT_SHA)
-	docker push $(IMAGE)-worker:latest
 
-# ── Auth / smoke dev helpers ─────────────────────────────────────
+# ── Smoke dev helper ─────────────────────────────────────────────
 
-jwt:               ## Print a test HS256 JWT to stdout (SECRET=… ROLES=admin,viewer EXP=3600)
-	@./scripts/make-jwt.sh $(if $(SECRET),--secret $(SECRET)) \
-		$(if $(ROLES),--roles $(ROLES)) \
-		$(if $(SUB),--sub $(SUB)) \
-		$(if $(EXP),--exp $(EXP))
-
-dev-token:         ## Mint a JWT and stash it in .dev-token (gitignored). smoke.sh picks it up via TOKEN env.
-	@./scripts/make-jwt.sh $(if $(SECRET),--secret $(SECRET)) \
-		$(if $(ROLES),--roles $(ROLES)) \
-		$(if $(SUB),--sub $(SUB)) \
-		$(if $(EXP),--exp $(EXP)) \
-		> .dev-token
-	@chmod 600 .dev-token
-	@echo "==> wrote .dev-token (use: TOKEN=\$$(cat .dev-token) make smoke)"
-
-smoke:             ## curl the running stack through a sample of endpoints
-	@if [ -z "$${TOKEN:-}" ] && [ -f .dev-token ]; then \
-		TOKEN=$$(cat .dev-token) ./scripts/smoke.sh ; \
-	else \
-		./scripts/smoke.sh ; \
-	fi
-
-# ── Frontend (React SPA in frontend/) ────────────────────────────
-
-.PHONY: frontend-install frontend-dev frontend-build frontend-lint \
-        frontend-typecheck frontend-test frontend-format frontend-gen-api \
-        frontend-up frontend-image
-
-frontend-install:  ## npm install in the frontend/ project
-	cd frontend && npm install
-
-frontend-dev:      ## Vite dev server on http://localhost:5173 (proxies /api -> :8080)
-	cd frontend && npm run dev
-
-frontend-gen-api:  ## Regenerate frontend/src/lib/api/schema.gen.ts from docs/openapi.yaml
-	cd frontend && npm run gen:api
-
-frontend-build:    ## Production build: tsc -b && vite build -> frontend/dist/
-	cd frontend && npm run build
-
-frontend-lint:     ## ESLint over frontend/src
-	cd frontend && npm run lint
-
-frontend-format:   ## Prettier --write over frontend/src
-	cd frontend && npm run format
-
-frontend-typecheck: ## tsc --noEmit
-	cd frontend && npm run typecheck
-
-frontend-test:     ## Vitest single-shot
-	cd frontend && npm run test
-
-frontend-up:       ## Pull + start the frontend container alongside the base stack
-	$(COMPOSE) $(ENV) --profile with-frontend up -d --pull missing frontend
-	@echo "==> SPA on :3001 (http://localhost:3001)"
-
-frontend-image:    ## Build the frontend Docker image only
-	docker build -f frontend/Dockerfile -t $(IMAGE)-frontend:$(GIT_SHA) -t $(IMAGE)-frontend:latest .
+smoke:             ## curl the running stack through the health/meta endpoints
+	./scripts/smoke.sh
 
 # ── Cleanup ──────────────────────────────────────────────────────
 
@@ -564,7 +438,7 @@ clean-docs:        ## Remove generated Doxygen output (docs/html, docs/latex, do
 clean: clean-build clean-logs clean-docs  ## Remove build/, logs (except .gitkeep), and Doxygen output
 
 dist-clean: clean  ## clean + drop vcpkg_installed and coverage report
-	rm -rf vcpkg_installed coverage .dev-token
+	rm -rf vcpkg_installed coverage
 
 # ── Help ─────────────────────────────────────────────────────────
 

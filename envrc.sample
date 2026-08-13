@@ -27,8 +27,6 @@ export TEST_REDIS_HOST="${TEST_REDIS_HOST:-127.0.0.1}"
 # default dev creds locally; secrets go in .envrc.local (gitignored).
 export DATABASE_PASSWORD="${DATABASE_PASSWORD:-postgres}"
 
-# Optional. Useful when AUTH_MODE=jwt — pass --secret to scripts/make-jwt.sh.
-# export JWT_SECRET="dev-secret-please-rotate"
 
 # Optional. If you have a private overlay file:
 [ -f .envrc.local ] && source_env .envrc.local

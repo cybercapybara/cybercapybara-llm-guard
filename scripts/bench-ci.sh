@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # CI benchmark orchestrator: fixed `baseline` preset against the middleware
-# path (/healthz) and the DB path (/api/v1/jobs), plus three low-noise
+# path (/healthz) and the dependency path (/health), plus three low-noise
 # footprint metrics. Emits the two JSON files github-action-benchmark reads.
 # Local dry run (needs wrk + jq + a built runtime image):
 #   docker build --target runtime -f docker/Dockerfile -t llm-guard:bench .
@@ -12,9 +12,6 @@ BENCH_IMAGE="${BENCH_IMAGE:-llm-guard:bench}"
 APP_URL="${APP_URL:-http://localhost:8080}"
 mkdir -p "$OUT_DIR"
 
-# The jobs subsystem is off by default (jobs.enabled=false); the DB-path
-# benchmark needs it. Compose forwards JOBS_ENABLED into the app container.
-export JOBS_ENABLED=true
 export APP_IMAGE="$BENCH_IMAGE"
 
 compose() {
@@ -48,13 +45,14 @@ mkdir -p logs && chmod a+w logs
 ./scripts/bench.sh baseline /healthz | tee "$OUT_DIR/wrk-healthz.txt"
 check_wrk_errors "$OUT_DIR/wrk-healthz.txt" /healthz
 
-# The trend must measure the 200 path, not a 401/404 fast-path.
-if ! curl -sf "$APP_URL/api/v1/jobs" >/dev/null; then
-    echo "ERROR: GET /api/v1/jobs is not returning 200 — check JOBS_ENABLED propagation" >&2
+# The trend must measure the 200 path, not a 404 fast-path. /health rolls the
+# registered probes (database + cache), so it exercises the dependency layer.
+if ! curl -sf "$APP_URL/health" >/dev/null; then
+    echo "ERROR: GET /health is not returning 200 — check that Postgres/Redis are reachable" >&2
     exit 1
 fi
-./scripts/bench.sh baseline /api/v1/jobs | tee "$OUT_DIR/wrk-jobs.txt"
-check_wrk_errors "$OUT_DIR/wrk-jobs.txt" /api/v1/jobs
+./scripts/bench.sh baseline /health | tee "$OUT_DIR/wrk-health.txt"
+check_wrk_errors "$OUT_DIR/wrk-health.txt" /health
 
 # 2) Runtime image size (bytes → MB).
 image_mb=$(docker image inspect "$BENCH_IMAGE" --format '{{.Size}}' \
@@ -98,12 +96,12 @@ rss_mb=$(docker stats --no-stream --format '{{.MemUsage}}' llm_guard_app \
 # 5) Assemble the two benchmark-action inputs.
 {
     ./scripts/wrk2bench.sh throughput healthz "$OUT_DIR/wrk-healthz.txt"
-    ./scripts/wrk2bench.sh throughput jobs    "$OUT_DIR/wrk-jobs.txt"
+    ./scripts/wrk2bench.sh throughput health  "$OUT_DIR/wrk-health.txt"
 } | jq -s 'add' > "$OUT_DIR/bench-bigger.json"
 
 {
     ./scripts/wrk2bench.sh latency healthz "$OUT_DIR/wrk-healthz.txt"
-    ./scripts/wrk2bench.sh latency jobs    "$OUT_DIR/wrk-jobs.txt"
+    ./scripts/wrk2bench.sh latency health  "$OUT_DIR/wrk-health.txt"
     printf '[{"name":"runtime image size","unit":"MB","value":%s},{"name":"cold start to /ready","unit":"ms","value":%s},{"name":"idle RSS","unit":"MB","value":%s}]\n' \
         "$image_mb" "$cold_ms" "$rss_mb"
 } | jq -s 'add' > "$OUT_DIR/bench-smaller.json"

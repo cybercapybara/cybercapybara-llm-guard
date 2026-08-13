@@ -73,8 +73,8 @@ inline std::string random_hex(std::size_t byte_count) {
 }
 
 /**
- * @brief Lowercase hex SHA-256 of @p s. Used by the Idempotency middleware
- *        to fingerprint request/response bodies.
+ * @brief Lowercase hex SHA-256 of @p s. Used wherever a stable content
+ *        fingerprint of a body or payload is needed.
  */
 inline std::string sha256_hex(std::string_view s) {
     unsigned char hash[SHA256_DIGEST_LENGTH];

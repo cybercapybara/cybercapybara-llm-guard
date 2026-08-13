@@ -33,7 +33,7 @@ struct RedisAddress {
 
 /**
  * @brief Parse a Redis connection string ("tcp://host:port"; scheme and port
- *        optional). Shared by Cache::initialize and the worker's blocking
+ *        optional). Shared by Cache::initialize and any dedicated blocking
  *        client so the parsing (and its error handling) lives in one place.
  * @throws std::runtime_error on a malformed port.
  */
@@ -81,7 +81,7 @@ inline std::vector<std::pair<std::string, int>> parse_sentinel_nodes_csv(const s
 
 /**
  * @brief Build a standalone Redis client. Shared between Cache and the
- *        Jobs blocking-BRPOP client so connection params live in one place.
+ *        blocking-command client so connection params live in one place.
  */
 inline std::unique_ptr<Redis> make_standalone_client(const std::string& host,
                                                      int port,
@@ -102,7 +102,7 @@ inline std::unique_ptr<Redis> make_standalone_client(const std::string& host,
 }
 
 /**
- * @brief Build a Sentinel-aware Redis client. Shared between Cache and Jobs.
+ * @brief Build a Sentinel-aware Redis client.
  */
 inline std::unique_ptr<Redis> make_sentinel_client(const std::string& master_name,
                                                    const std::vector<std::pair<std::string, int>>& sentinels,
