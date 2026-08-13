@@ -170,6 +170,17 @@ set(HEAVY_PCH
     <spdlog/spdlog.h>
 )
 
+# Compile definitions shared by ALL THREE test binaries. They must be identical
+# across the targets because integration/e2e reuse the unit target's PCH
+# (REUSE_FROM below): GCC validates that a .gch was built with the same -D set
+# as the TU including it, and rejects it otherwise — which under -Werror
+# surfaces as `-Werror=invalid-pch`, not as a silent slow rebuild. Add a test
+# define here, never on a single test target.
+#
+# LLMGUARD_REPO_ROOT lets a test resolve rule catalogs / fixtures in the source
+# tree by absolute path, so the binaries run from any working directory.
+set(TEST_COMPILE_DEFS LLMGUARD_REPO_ROOT="${CMAKE_SOURCE_DIR}")
+
 # Create main executable
 add_executable(${PROJECT_NAME}
     src/main.cpp
@@ -212,12 +223,8 @@ if(UNIT_SOURCES)
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/tests
     )
+    target_compile_definitions(${PROJECT_NAME}_tests_unit PRIVATE ${TEST_COMPILE_DEFS})
     target_precompile_headers(${PROJECT_NAME}_tests_unit PRIVATE ${HEAVY_PCH} <gtest/gtest.h>)
-
-    # Unit tests load rule catalogs / fixtures from the source tree by absolute
-    # path — the binary can run from any working directory.
-    target_compile_definitions(${PROJECT_NAME}_tests_unit PRIVATE
-        LLMGUARD_REPO_ROOT="${CMAKE_SOURCE_DIR}")
 
     # Per-test discovery for `ctest -R SomeSuite.someCase`.
     gtest_discover_tests(${PROJECT_NAME}_tests_unit
@@ -245,6 +252,8 @@ if(INTEGRATION_SOURCES)
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/tests
     )
+    # Must match the unit target's defines exactly — the PCH is reused below.
+    target_compile_definitions(${PROJECT_NAME}_tests_integration PRIVATE ${TEST_COMPILE_DEFS})
     target_precompile_headers(${PROJECT_NAME}_tests_integration REUSE_FROM ${PROJECT_NAME}_tests_unit)
 
     gtest_discover_tests(${PROJECT_NAME}_tests_integration
@@ -268,6 +277,8 @@ if(E2E_SOURCES)
         ${CMAKE_SOURCE_DIR}/src
         ${CMAKE_SOURCE_DIR}/tests
     )
+    # Must match the unit target's defines exactly — the PCH is reused below.
+    target_compile_definitions(${PROJECT_NAME}_e2e PRIVATE ${TEST_COMPILE_DEFS})
     target_precompile_headers(${PROJECT_NAME}_e2e REUSE_FROM ${PROJECT_NAME}_tests_unit)
     add_test(NAME e2e_bucket COMMAND ${PROJECT_NAME}_e2e --gtest_color=yes)
     set_tests_properties(e2e_bucket PROPERTIES LABELS "e2e")
