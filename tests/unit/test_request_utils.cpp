@@ -24,8 +24,7 @@ TEST(RequestUtilsTest, PlainPathUnchanged) {
 
 TEST(RequestUtilsTest, UuidSegmentRedacted) {
     EXPECT_EQ(normalize_path_for_metrics("/api/v1/items/123e4567-e89b-12d3-a456-426614174000"), "/api/v1/items/:id");
-    EXPECT_EQ(normalize_path_for_metrics("/api/v1/things/123e4567-e89b-12d3-a456-426614174000"),
-              "/api/v1/things/:id");
+    EXPECT_EQ(normalize_path_for_metrics("/api/v1/things/123e4567-e89b-12d3-a456-426614174000"), "/api/v1/things/:id");
     // UUID mid-path + trailing segment.
     EXPECT_EQ(normalize_path_for_metrics("/api/v1/items/123e4567-e89b-12d3-a456-426614174000/children"),
               "/api/v1/items/:id/children");
