@@ -295,7 +295,7 @@ inline bool iban_valid(std::string_view iban_in) {
     for (char c : iban_in) {
         if (c == ' ')
             continue;
-        iban.push_back(ascii_upper_char(c));
+        iban.push_back(detail::ascii_upper_char(c));
     }
     if (iban.size() < 4)
         return false;
