@@ -8,10 +8,27 @@
  *              registry-consulted duplicate-id check (the C++ signature
  *              takes only a `Rule`, not a `Registry&`, per
  *              phase1-interfaces.md) — duplicate detection instead happens
- *              in `Registry::build` as it inserts each successfully
- *              compiled rule, which is functionally identical to Go's
- *              `Add` (`CompileRule` then insert) called in a loop by
- *              `Build`.
+ *              in `Registry::build`, checked BEFORE calling `compile_rule`
+ *              for each rule, matching Go's precedence exactly (`CompileRule`
+ *              checks `reg.byID` first thing, ahead of even the empty-id
+ *              check): a duplicate id is reported even when the second
+ *              rule is also otherwise invalid, and no compile is wasted on
+ *              a rule that can't be added regardless.
+ *            - Both `RE2` constructions (the main regex and the placeholder
+ *              recognizer) pass `RE2::Quiet` explicitly. The default
+ *              `Options` log a parse error to stderr on construction; once
+ *              a future configuration API reuses `compile_rule` for
+ *              operator-supplied rules, the default would let a rejected
+ *              custom regex write arbitrary operator text to the server's
+ *              stderr on every request (log spam, and a log-injection
+ *              vector) — Go's `regexp.Compile` has no such side channel at
+ *              all. `RE2::error()` still carries the message back to the
+ *              caller through `RuleError` either way.
+ *            - `Registry::by_id_` uses a C++20 heterogeneous-lookup hash
+ *              (`detail::TransparentStringHash`, paired with the already-
+ *              transparent `std::equal_to<>`) so `by_id(std::string_view)` —
+ *              a hot path once the demasker looks up rules per match — never
+ *              allocates a temporary `std::string` just to probe the map.
  *            - Validation order mirrors `CompileRule` exactly, with one
  *              deliberate addition: the Go reference only checks
  *              `strings.TrimSpace(rl.ID) == ""`; this port additionally
@@ -53,6 +70,7 @@
 
 #include <atomic>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -95,6 +113,15 @@ inline bool is_valid_rule_id(std::string_view id) {
     return true;
 }
 
+// C++20 heterogeneous-lookup hash so `Registry::by_id` (a hot path for the
+// demasker) can look up a `std::string_view` directly against a `std::string`
+// key without allocating a temporary `std::string` per call. Paired with
+// `std::equal_to<>` (already transparent) on the map itself.
+struct TransparentStringHash {
+    using is_transparent = void;
+    std::size_t operator()(std::string_view sv) const noexcept { return std::hash<std::string_view>{}(sv); }
+};
+
 }  // namespace detail
 
 /**
@@ -116,11 +143,16 @@ public:
     static std::shared_ptr<const Registry> build(const std::vector<Rule>& rules) {
         auto reg = std::make_shared<Registry>();
         for (const auto& r : rules) {
-            CompiledRule cr = compile_rule(r);
-            if (reg->by_id_.find(cr.rule.id) != reg->by_id_.end()) {
+            // Duplicate id is checked BEFORE compiling -- mirrors Go's error
+            // precedence (CompileRule checks reg.byID first thing, before
+            // even the empty-id check): a duplicate is reported even when
+            // the second rule is also otherwise invalid, and a doomed
+            // compile is never wasted on a rule that can't be added anyway.
+            if (reg->by_id_.find(r.id) != reg->by_id_.end()) {
                 throw RuleError(RuleError::Code::DuplicateId,
-                                "compile guardrails rule '" + cr.rule.id + "': duplicate rule_id");
+                                "compile guardrails rule '" + r.id + "': duplicate rule_id");
             }
+            CompiledRule cr = compile_rule(r);
             const std::size_t idx = reg->rules_.size();
             reg->by_id_.emplace(cr.rule.id, idx);
             reg->by_data_type_[cr.rule.data_type].push_back(idx);
@@ -156,7 +188,14 @@ public:
             }
         }
 
-        auto re = std::make_shared<RE2>("(?m)" + r.regex);
+        // RE2::Quiet: the default Options log a parse error to stderr on
+        // construction. compile_rule is (from Task 1.5 on) the same path a
+        // future configuration API reuses for operator-supplied rules, so a
+        // rejected custom regex must not write arbitrary operator text to
+        // the server's stderr (log spam / a log-injection vector) -- Go's
+        // regexp.Compile has no such side channel at all. RE2::error()
+        // still carries the same message back to the caller via RuleError.
+        auto re = std::make_shared<RE2>("(?m)" + r.regex, RE2::Quiet);
         if (!re->ok()) {
             throw RuleError(RuleError::Code::BadRegex, "compile guardrails rule '" + r.id + "' regex: " + re->error());
         }
@@ -185,11 +224,32 @@ public:
         // file-level doc comment).
         const std::string placeholder = detail::ascii_trim(r.masking.placeholder);
         if (!placeholder.empty()) {
-            PlaceholderPattern pp = build_placeholder_pattern(placeholder);  // may throw UnboundedPlaceholder
-            auto placeholder_re = std::make_shared<RE2>("(?m)" + pp.pattern);
+            PlaceholderPattern pp;
+            try {
+                pp = build_placeholder_pattern(placeholder);
+            } catch (const RuleError& e) {
+                // Re-thrown with the rule id attached: a 266-rule catalog
+                // failure has to name which rule broke, not just report
+                // "placeholder regex is unbounded" in the abstract.
+                throw RuleError(e.code, "compile guardrails rule '" + r.id + "' placeholder: " + e.what());
+            }
+            // RE2::Quiet -- see the main-regex comment above; same rationale.
+            auto placeholder_re = std::make_shared<RE2>("(?m)" + pp.pattern, RE2::Quiet);
             if (!placeholder_re->ok()) {
                 throw RuleError(RuleError::Code::BadRegex,
                                 "compile guardrails rule '" + r.id + "' placeholder regex: " + placeholder_re->error());
+            }
+            // registry.go:406-408 parity: the placeholder recognizer must
+            // expose capture group #1 for the placeholder's numeric index --
+            // the demasker depends on it. Unreachable for the fixed-shape
+            // template build_placeholder_pattern emits today (it always
+            // produces exactly one group), kept as a defensive assertion
+            // against a future template change.
+            if (placeholder_re->NumberOfCapturingGroups() < 1) {
+                throw RuleError(RuleError::Code::BadRegex,
+                                "compile guardrails rule '" + r.id +
+                                    "' placeholder regex must have capture group #1 "
+                                    "for the placeholder index");
             }
             cr.placeholder_re = placeholder_re;
             cr.placeholder_len = pp.max_len;
@@ -200,7 +260,7 @@ public:
 
     /// nullptr if `id` is absent from this snapshot.
     const CompiledRule* by_id(std::string_view id) const {
-        const auto it = by_id_.find(std::string(id));
+        const auto it = by_id_.find(id);
         return it == by_id_.end() ? nullptr : &rules_[it->second];
     }
 
@@ -225,7 +285,7 @@ public:
 
 private:
     std::vector<CompiledRule> rules_;
-    std::unordered_map<std::string, std::size_t> by_id_;
+    std::unordered_map<std::string, std::size_t, detail::TransparentStringHash, std::equal_to<>> by_id_;
     std::unordered_map<DataType, std::vector<std::size_t>> by_data_type_;
 };
 

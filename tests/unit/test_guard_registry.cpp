@@ -16,11 +16,16 @@
  * end-to-end under the real Registry.
  */
 
+#include <array>
+#include <atomic>
+#include <cstddef>
 #include <memory>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <gtest/gtest.h>
+#include <re2/re2.h>
 
 #include "guard/Errors.hpp"
 #include "guard/Registry.hpp"
@@ -147,6 +152,19 @@ TEST(GuardRegistry, CompileRuleAcceptsEmptyCaptureGroupsAsFullMatch) {
     r.masking.capture_groups.clear();
 
     EXPECT_NO_THROW(Guard::Registry::compile_rule(r));
+}
+
+TEST(GuardRegistry, CompiledRegexHasMultilinePrefixAndIsEffective) {
+    // Pins two things at once: the stored RE2 pattern literally starts with
+    // the "(?m)" prefix compile_rule prepends, AND that prefix is actually
+    // load-bearing -- an anchored rule regex must match starting on the
+    // SECOND line of a multi-line candidate, not just at the start of text.
+    Guard::Rule r = make_rule("test.multiline", "^secret$");
+
+    Guard::CompiledRule cr = Guard::Registry::compile_rule(r);
+    ASSERT_NE(cr.re, nullptr);
+    EXPECT_EQ(cr.re->pattern().substr(0, 4), "(?m)");
+    EXPECT_TRUE(RE2::PartialMatch("x\nsecret", *cr.re));
 }
 
 // ── Registry::compile_rule: blank placeholder guard ─────────────────────
@@ -303,12 +321,69 @@ TEST(GuardRegistry, ReloadableRegistryOldSnapshotStaysValidAfterSwap) {
     EXPECT_EQ(reloadable.get()->size(), 2u);
 }
 
+// Ports Go's TestReloadable_ConcurrentSwap (reloadable_test.go): 8 reader
+// threads loop lookups against whatever snapshot happens to be current while
+// the main thread publishes ~200 fresh registries; this is what turns the CI
+// tsan job into a real gate on the atomic<shared_ptr<const Registry>>
+// publish/read pair, rather than a single-threaded sanity check that never
+// exercises a concurrent swap. Every registry built here carries exactly one
+// Credentials rule, so within any single snapshot for_data_types must find
+// exactly that one rule, and by_id on its own id must resolve back to the
+// same pointer -- a torn or corrupted read shows up as a violation of either
+// invariant. Failures are recorded via an atomic flag rather than calling
+// gtest assertion macros from the reader threads.
+TEST(GuardRegistry, ReloadableRegistryConcurrentSwap) {
+    auto initial = Guard::Registry::build({make_rule("rule-0", "[A-Z]+", "TEST", Guard::DataType::Credentials)});
+    Guard::ReloadableRegistry reloadable(initial);
+
+    constexpr int kReaders = 8;
+    constexpr int kSwaps = 200;
+
+    std::atomic<bool> stop{false};
+    std::atomic<bool> failed{false};
+
+    std::vector<std::thread> readers;
+    readers.reserve(kReaders);
+    for (int i = 0; i < kReaders; ++i) {
+        readers.emplace_back([&reloadable, &stop, &failed]() {
+            while (!stop.load(std::memory_order_relaxed)) {
+                auto snap = reloadable.get();
+                if (snap == nullptr) {
+                    failed.store(true, std::memory_order_relaxed);
+                    continue;
+                }
+                auto matches = snap->for_data_types({Guard::DataType::Credentials});
+                if (matches.size() != 1) {
+                    failed.store(true, std::memory_order_relaxed);
+                    continue;
+                }
+                const Guard::CompiledRule* by_data_type = matches[0];
+                if (snap->by_id(by_data_type->rule.id) != by_data_type) {
+                    failed.store(true, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+
+    for (int i = 1; i <= kSwaps; ++i) {
+        auto reg = Guard::Registry::build(
+            {make_rule("rule-" + std::to_string(i), "[A-Z]+", "TEST", Guard::DataType::Credentials)});
+        reloadable.swap(reg);
+    }
+    stop.store(true, std::memory_order_relaxed);
+    for (auto& t : readers)
+        t.join();
+
+    EXPECT_FALSE(failed.load());
+}
+
 // ── Full-catalog smoke test: the phase-1 exit criterion ──────────────────
 // Both shipped rule catalogs must load AND compile end-to-end through the
 // real Registry -- not just the loader. size()==266 pins the known-good
-// combined rule count (46 + 220, see test_guard_rules_yaml.cpp); every
-// compiled rule with a non-null placeholder recognizer must have a positive
-// bound, since that bound sizes the SSE pending buffer downstream.
+// combined rule count (46 + 220, see test_guard_rules_yaml.cpp); every one
+// of the 266 rules declares a placeholder, and its recognizer's max_len
+// bound must be positive, since that bound sizes the SSE pending buffer
+// downstream.
 
 namespace {
 
@@ -326,9 +401,29 @@ TEST(GuardRegistry, FullCatalogCompiles) {
     ASSERT_NO_THROW(reg = Guard::Registry::build(loaded.rules));
 
     EXPECT_EQ(reg->size(), 266u);
+    // Every one of the 266 shipped rules declares a masking.placeholder
+    // (confirmed against both catalogs) -- unconditional, not `if (... !=
+    // nullptr)`, so a future rule that regresses to a blank placeholder (and
+    // therefore silently loses its recognizer) fails this test instead of
+    // being quietly skipped by the loop.
     for (const auto& cr : reg->all()) {
-        if (cr.placeholder_re == nullptr)
-            continue;
+        ASSERT_NE(cr.placeholder_re, nullptr) << "rule '" << cr.rule.id << "' has no placeholder recognizer";
         EXPECT_GT(cr.placeholder_len, 0u) << "rule '" << cr.rule.id << "' has zero placeholder_len";
     }
+
+    // for_data_types partitions the whole catalog: every rule carries one of
+    // the 6 named data types (none use Unspecified), so summing per-type
+    // counts across all 6 must reproduce size().
+    static constexpr std::array<Guard::DataType, 6> kAllDataTypes{
+        Guard::DataType::Credentials,
+        Guard::DataType::ApiKeys,
+        Guard::DataType::AccessTokens,
+        Guard::DataType::IpAddresses,
+        Guard::DataType::PersonalData,
+        Guard::DataType::Custom,
+    };
+    std::size_t total_by_data_type = 0;
+    for (Guard::DataType dt : kAllDataTypes)
+        total_by_data_type += reg->for_data_types({dt}).size();
+    EXPECT_EQ(total_by_data_type, 266u);
 }
