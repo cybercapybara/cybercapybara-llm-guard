@@ -59,6 +59,21 @@ set(VCPKG_CMAKE_SYSTEM_NAME Linux)
 # civetweb -- was rejected: a suppression list is a standing invitation to
 # silence real findings.
 #
+# This does NOT make the build cheaper than whole-tree: the triplet NAME is
+# part of every package's ABI hash, so the entire tree is built fresh either
+# way. It is only the instrumentation (and its report surface) that narrows.
+#
+# THE LINKER FLAG IS UNCONDITIONAL, AND HAS TO BE.
+# Narrowing it alongside the compile flags is what broke PR #9 run 3: several
+# ports link executables of their own during their build (protoc above all,
+# and it is protoc that generates opentelemetry's sources), and the moment such
+# a port links the instrumented libabsl archives without -fsanitize=thread on
+# its own link line, every __tsan_* reference those archives carry comes up
+# undefined and the port fails to build. Passing the runtime to every link is
+# harmless for the ports compiled without instrumentation — they have nothing
+# for TSan to track, so libtsan just sits there.
+set(VCPKG_LINKER_FLAGS "-fsanitize=thread")
+
 # -O1: TSan's own recommendation — keeps the instrumented code fast enough to
 #      be usable while preserving frame fidelity.
 # -g1: line tables only. Full -g adds gigabytes to the layer (and to the CI
@@ -66,15 +81,7 @@ set(VCPKG_CMAKE_SYSTEM_NAME Linux)
 #      file:line in every stack frame.
 # -fno-omit-frame-pointer: matches the first-party ENABLE_TSAN flags in
 #      CMakeLists.txt so stacks unwind cleanly across the boundary.
-# VCPKG_LINKER_FLAGS: ports that link executables during their own build need
-#      the runtime on the link line too, or they fail with undefined
-#      references to __tsan_*.
-#
-# This does NOT make the build cheaper than whole-tree: the triplet NAME is
-# part of every package's ABI hash, so the entire tree is built fresh either
-# way. It is only the instrumentation (and its report surface) that narrows.
 if(PORT MATCHES "^(re2|abseil)$")
     set(VCPKG_C_FLAGS "-fsanitize=thread -fno-omit-frame-pointer -O1 -g1")
     set(VCPKG_CXX_FLAGS "-fsanitize=thread -fno-omit-frame-pointer -O1 -g1")
-    set(VCPKG_LINKER_FLAGS "-fsanitize=thread")
 endif()
