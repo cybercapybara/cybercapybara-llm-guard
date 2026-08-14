@@ -69,8 +69,9 @@ inline bool is_ascii(std::string_view s) {
 inline std::string to_lower_utf8(std::string_view s) {
     if (detail::is_ascii(s)) {
         std::string out(s);
-        std::transform(out.begin(), out.end(), out.begin(),
-                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
+            return static_cast<char>(std::tolower(c));
+        });
         return out;
     }
 
@@ -79,9 +80,9 @@ inline std::string to_lower_utf8(std::string_view s) {
     std::size_t i = 0;
     while (i < s.size()) {
         utf8proc_int32_t codepoint = 0;
-        const utf8proc_ssize_t consumed =
-            utf8proc_iterate(reinterpret_cast<const utf8proc_uint8_t*>(s.data() + i),
-                             static_cast<utf8proc_ssize_t>(s.size() - i), &codepoint);
+        const auto* remaining_start = reinterpret_cast<const utf8proc_uint8_t*>(s.data() + i);
+        const auto remaining_len = static_cast<utf8proc_ssize_t>(s.size() - i);
+        const utf8proc_ssize_t consumed = utf8proc_iterate(remaining_start, remaining_len, &codepoint);
         if (consumed <= 0) {
             // Invalid byte: pass through unchanged, advance one byte. Never
             // throws -- parity with Go's lenient invalid-rune handling.
