@@ -22,12 +22,16 @@ set(VCPKG_CRT_LINKAGE dynamic)
 set(VCPKG_LIBRARY_LINKAGE static)
 set(VCPKG_CMAKE_SYSTEM_NAME Linux)
 
-# Release-only: the default triplet builds every port twice (release + debug).
-# The TSan tree is consumed by exactly one CMAKE_BUILD_TYPE=Debug build, and on
-# Linux/GCC a Debug consumer links release-built static libs without any CRT
-# mismatch — so the second variant would double a ~30 min cold build and the
-# image size for nothing.
-set(VCPKG_BUILD_TYPE release)
+# NOTE: do NOT add `set(VCPKG_BUILD_TYPE release)` here, tempting as it is —
+# it halves the cold build, and it breaks the link. vcpkg's libpq wrapper
+# (ports/libpq/vcpkg-cmake-wrapper.cmake) attaches the static pgport/pgcommon
+# archives to PostgreSQL::PostgreSQL through a pair of generator expressions:
+# the release ones guarded by $<$<NOT:$<CONFIG:DEBUG>>:...>, the debug ones
+# only if they are found under debug/lib. This tree's one consumer is a
+# CMAKE_BUILD_TYPE=Debug build, so with a release-only tree it gets NEITHER,
+# and libpq.a fails to link with undefined references to pg_b64_encode,
+# pg_hmac_*, scram_*, pg_strcasecmp … (measured, PR #9 run 1). Both variants
+# it is, exactly like the plain tree.
 
 # -O1: TSan's own recommendation — keeps the instrumented code fast enough to
 #      be usable while preserving frame fidelity.
