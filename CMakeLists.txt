@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.21)
-project(llm_guard VERSION 1.4.0 LANGUAGES CXX)
+project(llm_guard VERSION 0.1.0 LANGUAGES CXX)
 
 # Set C++20 standard
 set(CMAKE_CXX_STANDARD 20)

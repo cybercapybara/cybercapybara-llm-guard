@@ -24,6 +24,14 @@ question instead of grepping the tree.
 | [`openapi.yaml`](openapi.yaml) | OpenAPI 3.1 spec for every registered route. `scripts/check-openapi-drift.sh` keeps it honest |
 | [`Doxyfile`](Doxyfile) | `make docs` configuration; output goes to `docs/html/` (gitignored) |
 
+## Design & implementation docs
+
+| File | What's there |
+|---|---|
+| [`superpowers/specs/`](superpowers/specs/) | Design specifications and architectural decisions |
+| [`superpowers/plans/`](superpowers/plans/) | Implementation plans (phases 0–8, task breakdowns, risk registers) |
+| [`superpowers/`](superpowers/) | Phase-progress tracking and reviews |
+
 ## Architecture decision records (`adr/`)
 
 | ADR | Decision |
@@ -35,6 +43,14 @@ question instead of grepping the tree.
 | [`adr/0006-api-versioning.md`](adr/0006-api-versioning.md) | Business routes live under `/api/v1`; probes stay unversioned |
 | [`adr/0004-global-singletons.md`](adr/0004-global-singletons.md) | Module init/get/shutdown singleton pattern + ordering rationale |
 | [`adr/README.md`](adr/README.md) | ADR conventions + how to add a new one |
+
+## Rule catalogs & engine source
+
+| Path | What's there |
+|---|---|
+| [`../configs/rules.yaml`](../configs/rules.yaml) | 46 hand-written detection rules (5 groups) — see `THIRD_PARTY_NOTICES.md` for provenance |
+| [`../configs/rules.gitleaks.generated.yaml`](../configs/rules.gitleaks.generated.yaml) | 220 generated gitleaks rules (3 groups) — see `THIRD_PARTY_NOTICES.md` for provenance |
+| [`../src/guard/`](../src/guard/) | Masking engine core: rule model, registry, validators, scanner, demasker, JSON/SSE processors (header-only) |
 
 ## Migrations
 
