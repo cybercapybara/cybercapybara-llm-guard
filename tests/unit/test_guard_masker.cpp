@@ -166,6 +166,41 @@ TEST(GuardMasker, CollisionGuardSkipsEveryReservedCounterValue) {
     EXPECT_EQ(got.state.replacements[1].placeholder, "<EMAIL_4>");
 }
 
+TEST(GuardMasker, CollisionGuardAppliesAcrossAllTextsIncludingLaterOnes) {
+    // reserved_placeholders scans ALL texts up front, before Phase B masks
+    // even the FIRST one -- so a reserved literal in a LATER text must still
+    // protect an EARLIER text's numbering. A refactor that reserved
+    // per-text incrementally (rather than across the whole vector first)
+    // would silently corrupt demasking here: text 0's email would collide
+    // with text 1's pre-existing "<EMAIL_1>" literal.
+    auto fx = build_rules({email_rule()});
+    Guard::MaskResult got = Guard::mask_texts({"bob@example.com", "see <EMAIL_1>"}, fx.rules);
+
+    EXPECT_EQ(got.masked_texts[0], "<EMAIL_2>");
+    EXPECT_EQ(got.masked_texts[1], "see <EMAIL_1>");
+
+    ASSERT_EQ(got.state.replacements.size(), 1u);
+    EXPECT_EQ(got.state.replacements[0].original, "bob@example.com");
+    EXPECT_EQ(got.state.replacements[0].placeholder, "<EMAIL_2>");
+    for (const auto& r : got.state.replacements)
+        EXPECT_NE(r.original, "<EMAIL_1>");
+}
+
+TEST(GuardMasker, CollisionGuardOnlySkipsTheExactReservedValue) {
+    // Reserving "<EMAIL_2>" alone must NOT push the counter to start above
+    // 1 -- only the exact reserved counter value (2) is skipped; 1 is free
+    // and used first, matching nextPlaceholder's "increment, check, maybe
+    // retry" loop rather than any "start above the highest reserved" logic.
+    auto fx = build_rules({email_rule()});
+    Guard::MaskResult got = Guard::mask_texts({"see <EMAIL_2>; alice@example.com then bob@example.com"}, fx.rules);
+
+    ASSERT_EQ(got.state.replacements.size(), 2u);
+    EXPECT_EQ(got.state.replacements[0].original, "alice@example.com");
+    EXPECT_EQ(got.state.replacements[0].placeholder, "<EMAIL_1>");
+    EXPECT_EQ(got.state.replacements[1].original, "bob@example.com");
+    EXPECT_EQ(got.state.replacements[1].placeholder, "<EMAIL_3>");
+}
+
 TEST(GuardMasker, TriggeredRuleIdsAndDataTypesAreSortedUnique) {
     Rule z = make_rule("z.rule", "ZED", "Z", DataType::Custom);
     Rule a = make_rule("a.rule", "ALPHA", "A", DataType::ApiKeys);
@@ -183,6 +218,9 @@ TEST(GuardMasker, TriggeredRuleIdsAndDataTypesAreSortedUnique) {
 }
 
 TEST(GuardMasker, ParallelEqualsSerialAcrossParallelMinBytesThreshold) {
+    if (std::thread::hardware_concurrency() <= 1)
+        GTEST_SKIP() << "single-core runner: auto_opts would never actually exercise the parallel chunked path";
+
     auto fx = build_rules({email_rule(), card_rule()});
 
     std::vector<std::string> texts;
@@ -435,6 +473,47 @@ TEST(GuardMasker, ZeroParallelMinBytesFallsBackToDefault) {
     EXPECT_EQ(Guard::detail::text_scan_worker_count({"a", "b"}, opts), 1u);
 }
 
+TEST(GuardMasker, ScanTextsParallelChunksCoverEveryTextWithoutGapsOrOverlap) {
+    // Bounds in-flight std::async tasks to text_scan_worker_count() by
+    // chunking texts into contiguous ranges rather than one task per text
+    // (a request with many more texts than workers used to spawn one OS
+    // thread per text -- see the file-level doc comment in Masker.hpp).
+    // With more texts than any plausible worker count, this pins the
+    // chunk-index arithmetic itself: every text must be scanned exactly
+    // once, by whichever chunk owns its index, with no gaps or double work.
+    if (std::thread::hardware_concurrency() <= 1)
+        GTEST_SKIP() << "single-core runner: cannot observe chunked fan-out";
+
+    constexpr int kTextCount = 37;  // deliberately not a multiple of any small worker count
+    std::vector<Guard::Rule> defs;
+    defs.reserve(kTextCount);
+    // "_END" bounds every needle so no rule's pattern is a digit-prefix of
+    // another's (e.g. "NEEDLE_1_END" must not spuriously match inside
+    // "NEEDLE_10_END").
+    for (int i = 0; i < kTextCount; ++i)
+        defs.push_back(
+            make_rule("r" + std::to_string(i), "NEEDLE_" + std::to_string(i) + "_END", "P", DataType::Custom));
+    auto fx = build_rules(defs);
+
+    std::vector<std::string> texts;
+    texts.reserve(kTextCount);
+    for (int i = 0; i < kTextCount; ++i)
+        texts.push_back("prefix NEEDLE_" + std::to_string(i) + "_END suffix");
+
+    MaskOptions opts;
+    opts.parallel_min_bytes = 1;  // force the parallel/chunked path
+    ASSERT_GT(Guard::detail::text_scan_worker_count(texts, opts), 1u);
+
+    auto results = Guard::detail::scan_texts(texts, fx.rules, opts);
+
+    ASSERT_EQ(results.size(), static_cast<std::size_t>(kTextCount));
+    for (int i = 0; i < kTextCount; ++i) {
+        EXPECT_FALSE(static_cast<bool>(results[static_cast<std::size_t>(i)].error)) << "text " << i;
+        ASSERT_EQ(results[static_cast<std::size_t>(i)].matches.size(), 1u) << "text " << i;
+        EXPECT_EQ(results[static_cast<std::size_t>(i)].matches[0].rule->rule.id, "r" + std::to_string(i));
+    }
+}
+
 // ── Reserved-placeholder collection ────────────────────────────────────────
 
 TEST(GuardMasker, ReservedPlaceholdersCollectsEveryLookalikeToken) {
@@ -577,4 +656,36 @@ TEST(GuardMaskerState, TriggeredDataTypesFiltersUnspecifiedAndOutOfRange) {
 
     EXPECT_EQ(got, "<A_1> <B_1> <C_1>");
     EXPECT_EQ(state.triggered_data_types(), (std::vector<DataType>{DataType::PersonalData}));
+}
+
+TEST(GuardMaskerState, NullRulePointerThrowsRuntimeError) {
+    // mask_text accepts a caller-supplied match vector with no guarantee
+    // every entry came from scan_rules (mirrors Scanner.hpp's own
+    // NullCompiledRulePointerThrows precondition on scan_one_rule).
+    Guard::detail::MaskerState state({});
+    std::vector<ScanMatch> matches{ScanMatch{0, 3, nullptr}};
+
+    EXPECT_THROW(state.mask_text("abc", matches), std::runtime_error);
+}
+
+TEST(GuardMaskerState, AdjacentSpansSpliceWithByteIdenticalSurroundingText) {
+    // Two matches that touch exactly (left.end == right.start) but don't
+    // overlap -- scan_rules itself never merges touching-not-overlapping
+    // spans (see Scanner.hpp's AdjacentMatchesAreNotMerged), so the masker
+    // must splice both placeholders back-to-back with nothing dropped or
+    // duplicated at the boundary, and the untouched prefix/suffix text must
+    // be byte-identical to the original.
+    auto fx = build_rules({
+        make_rule("left", "abc", "LEFT", DataType::Custom),
+        make_rule("right", "def", "RIGHT", DataType::ApiKeys),
+    });
+    Guard::detail::MaskerState state({});
+    const std::string text = "pre abcdef post";
+    std::vector<ScanMatch> matches{
+        find_match(text, "abc", fx.rules[0]),
+        find_match(text, "def", fx.rules[1]),
+    };
+    ASSERT_EQ(matches[0].end, matches[1].start);  // touching, not overlapping
+
+    EXPECT_EQ(state.mask_text(text, matches), "pre <LEFT_1><RIGHT_1> post");
 }
