@@ -166,6 +166,38 @@ TEST(GuardPrefilter, EmptyPatternNeverGuarantees) {
     EXPECT_FALSE(regex_guarantees_keyword("", {"secret"}));
 }
 
+// ── \Q...\E soundness (code review finding) ───────────────────────────────
+// \Q...\E (Perl/PCRE's literal-quote escape) is not valid RE2/Go-regexp
+// syntax at all. Before the parse_escape default-case fix, an unrecognized
+// alphanumeric escape like \Q fell through to the same "literal escaped
+// char" path as escaped punctuation (\.), so \Qsecret\E parsed as
+// Literal("Q") + Literal("secret") + Literal("E") -- three separate
+// literal runs since '\Q' and 's' don't merge across the escape boundary
+// the same way -- and Concat's "any child suffices" rule could then prove
+// a keyword guarantee ("qsecret", or even "secret" alone) that real RE2
+// semantics don't actually support (RE2 would reject \Q as invalid syntax
+// outright). Escaped ASCII alphanumerics now abort the whole parse
+// (PrefilterParseFailure -> false); escaped punctuation is unaffected.
+
+TEST(GuardPrefilter, UnsupportedQuoteEscapeWithMatchingCompoundKeywordIsFalse) {
+    EXPECT_FALSE(regex_guarantees_keyword(R"(\Qsecret\E)", {"qsecret"}));
+}
+
+TEST(GuardPrefilter, UnsupportedQuoteEscapeIsConservativelyFalseEvenForTheQuotedLiteral) {
+    // Conservative on purpose: \Q isn't valid RE2/Go syntax, so the whole
+    // pattern is unparseable -- nothing in it (including the "secret" text
+    // that would, under Perl's real \Q...\E semantics, be a guaranteed
+    // literal) can be trusted as a genuine literal by this prover.
+    EXPECT_FALSE(regex_guarantees_keyword(R"(\Qsecret\E)", {"secret"}));
+}
+
+TEST(GuardPrefilter, EscapedPunctuationStillProvesLiteralAfterQuoteEscapeFix) {
+    // The fix targets escaped ASCII alphanumerics specifically -- escaped
+    // punctuation (the actual, common, valid RE2 identity-escape form) must
+    // still merge into a provable literal run exactly as before.
+    EXPECT_TRUE(regex_guarantees_keyword(R"(dp\.pt\.)", {"dp.pt."}));
+}
+
 // ── Full-catalog: eligibility stats + recall-preserving equivalence ──────
 // The phase-1 exit criterion: both shipped catalogs (266 rules combined)
 // must compile, SOME rules must end up prefilter_eligible (otherwise the
@@ -262,6 +294,22 @@ TEST(GuardPrefilter, FullCatalogScanEquivalenceAcrossFiveDistinctRulesIncludingC
     // one match. OGRN/inn-org checksums are reused from
     // test_guard_validators_checksums.cpp's own verified-valid vectors so
     // their validators actually accept them.
+    //
+    // NOTE on "IncludingCyrillic": every Cyrillic-keyword rule in the real
+    // catalog (pii.docs.{inn-person,inn-org,ogrn,ogrnip,kpp,passport}) is
+    // prefilter_INeligible -- either its keyword never appears literally in
+    // its own regex (the bare `\d{N}` OGRN/inn shapes), or it's a
+    // case-insensitive Cyrillic literal this port's conservative
+    // non-ASCII-under-`(?i)` fold rule refuses (see Prefilter.hpp's
+    // "FOLD-SAFETY PORT" doc comment) -- matching Go's own real answer for
+    // those rules either way (see GuardPrefilter.BareChecksumNumberInnLike /
+    // AlternationBranchWithoutKeywordPassportLike above). So the OGRN/inn-org
+    // candidates below exercise the "ineligible rule is always scanned,
+    // never dropped" side of the recall-preserving guarantee (an untouched,
+    // always-scanned rule), not the "eligible rule correctly skipped/kept"
+    // side -- both are equally load-bearing for the equivalence property
+    // this test checks, just via different code paths through
+    // detail::filter_by_keywords.
     const std::string text =
         "Реквизиты: ОГРН 1027700132195.\n"
         "Реквизиты: ИНН 7707083893.\n"
@@ -308,7 +356,7 @@ TEST(GuardPrefilter, RealConfigPrefilterIsRecallPreservingOnUnicodeCorpus) {
 
     const std::vector<std::string> bodies{
         "Bearer sk-ABCDEFGHIJKLMNOPQRSTUVWX secret=пароль",
-        "ключ ΣΤΑ значение api_key=deadbeefdeadbeefdeadbeefdeadbeef",
+        "ключ ΣΤΑ ςτα значение api_key=deadbeefdeadbeefdeadbeefdeadbeef",
         "straße SECRET ſecret Σ σ ς mixed-case AWS_SECRET",
         "нормальный текст без секретов",
     };

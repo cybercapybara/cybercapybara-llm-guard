@@ -798,3 +798,49 @@ TEST(GuardScanner, PrefilterEnabledOnRuleSetWithNoKeywordsAtAllBehavesLikeDisabl
         EXPECT_EQ(matches_off[i].rule->rule.id, matches_on[i].rule->rule.id);
     }
 }
+
+// ── Uppercase (non-pre-lowered) keywords still hit (code review finding) ──
+// RulesYaml.hpp lowercases rule.keywords as a side effect of the YAML
+// loader, but Registry::compile_rule is the single validation path for
+// ANY rule source -- including a hypothetical rule built directly (as
+// this test does, and as a future configuration API would) with keywords
+// that were never run through that loader. regex_guarantees_keyword
+// lowercases keywords INTERNALLY to decide eligibility, so such a rule can
+// still end up prefilter_eligible even though rule.keywords itself is
+// mixed-case. Before this fix, the scanner matched raw (unlowered)
+// rule.keywords against the lowered scan text -- silently never hitting
+// for a keyword like "Bearer" and dropping every match of an eligible
+// rule, exactly the failure mode the pre-filter must never have. The fix
+// is CompiledRule::prefilter_keywords: a lowercased copy Registry::
+// compile_rule always computes, which the scanner matches against instead.
+TEST(GuardScanner, UppercaseKeywordNotPreLoweredStillHitsAfterPrefilterKeywordsFix) {
+    Guard::Rule r;
+    r.id = "uppercase.keyword.rule";
+    r.name = r.id;
+    r.data_type = Guard::DataType::AccessTokens;
+    r.regex = "Bearer ([a-z0-9]+)";  // literal "Bearer" -- eligible regardless of keyword casing
+    r.keywords = {"Bearer"};         // deliberately NOT pre-lowered, unlike the YAML loader's output
+    r.masking.capture_groups = {1};
+    r.masking.placeholder = "TOKEN";
+
+    auto reg = Guard::Registry::build({r});
+    const Guard::CompiledRule* cr = reg->by_id("uppercase.keyword.rule");
+    ASSERT_NE(cr, nullptr);
+    ASSERT_TRUE(cr->prefilter_eligible);
+    ASSERT_EQ(cr->prefilter_keywords, std::vector<std::string>{"bearer"});
+
+    const std::string text = "Bearer abc123";
+    std::vector<const Guard::CompiledRule*> rules{cr};
+
+    Guard::ScanOptions off;
+    off.prefilter_enabled = false;
+    auto matches_off = Guard::scan_rules(text, rules, off);
+    ASSERT_EQ(matches_off.size(), 1u) << "baseline (prefilter off) must find the match";
+
+    Guard::ScanOptions on;
+    on.prefilter_enabled = true;
+    auto matches_on = Guard::scan_rules(text, rules, on);
+    ASSERT_EQ(matches_on.size(), 1u)
+        << "prefilter on must still find the match -- a raw-keyword bug would silently drop it";
+    expect_match(matches_on[0], 7, 13, "uppercase.keyword.rule");
+}
