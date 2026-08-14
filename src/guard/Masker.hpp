@@ -268,8 +268,8 @@ public:
             const std::string placeholder = placeholder_for_original(std::string(original), placeholder_type, created);
 
             if (created) {
-                replacements_.push_back(Replacement{
-                    match.rule->rule.id, match.rule->rule.data_type, std::string(original), placeholder});
+                replacements_.push_back(
+                    Replacement{match.rule->rule.id, match.rule->rule.data_type, std::string(original), placeholder});
             }
 
             seen_rules_.insert(match.rule->rule.id);
@@ -297,7 +297,8 @@ public:
 
 private:
     // Ports `placeholderForOriginal` (masker.go:125-133).
-    std::string placeholder_for_original(const std::string& original, const std::string& placeholder_type,
+    std::string placeholder_for_original(const std::string& original,
+                                         const std::string& placeholder_type,
                                          bool& created) {
         const auto it = original_to_placeholder_.find(original);
         if (it != original_to_placeholder_.end()) {
@@ -430,7 +431,8 @@ inline void propagate_first_scan_error(const std::vector<TextScanResult>& result
  *         the caller is expected to fail open on this, per the interface
  *         contract.
  */
-inline MaskResult mask_texts(const std::vector<std::string>& texts, const std::vector<const CompiledRule*>& rules,
+inline MaskResult mask_texts(const std::vector<std::string>& texts,
+                             const std::vector<const CompiledRule*>& rules,
                              const MaskOptions& opts = {}) {
     MaskResult result;
 

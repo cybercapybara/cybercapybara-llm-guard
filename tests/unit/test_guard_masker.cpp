@@ -47,7 +47,9 @@ using Guard::Registry;
 using Guard::Rule;
 using Guard::ScanMatch;
 
-Rule make_rule(std::string id, std::string regex, std::string placeholder = "TEST",
+Rule make_rule(std::string id,
+               std::string regex,
+               std::string placeholder = "TEST",
                DataType data_type = DataType::Custom) {
     Rule r;
     r.id = std::move(id);
@@ -94,8 +96,8 @@ Rule card_rule(std::string id = "payment.card") {
 
 TEST(GuardMasker, SameOriginalAcrossTextsDedupesToOnePlaceholder) {
     auto fx = build_rules({email_rule()});
-    Guard::MaskResult got = Guard::mask_texts({"contact alice@example.com now", "again alice@example.com here"},
-                                              fx.rules);
+    Guard::MaskResult got =
+        Guard::mask_texts({"contact alice@example.com now", "again alice@example.com here"}, fx.rules);
 
     ASSERT_EQ(got.masked_texts.size(), 2u);
     EXPECT_EQ(got.masked_texts[0], "contact <EMAIL_1> now");
@@ -138,8 +140,7 @@ TEST(GuardMasker, DifferentTypesGetIndependentCounters) {
 
 TEST(GuardMasker, CollisionGuardSkipsReservedLiteralAndLeavesItUntouched) {
     auto fx = build_rules({email_rule()});
-    Guard::MaskResult got =
-        Guard::mask_texts({"already have <EMAIL_1> literal, new email bob@example.com"}, fx.rules);
+    Guard::MaskResult got = Guard::mask_texts({"already have <EMAIL_1> literal, new email bob@example.com"}, fx.rules);
 
     // The literal "<EMAIL_1>" isn't an email match at all (no '@'), so it
     // survives untouched; the real email is masked, but its counter skips
@@ -155,8 +156,8 @@ TEST(GuardMasker, CollisionGuardSkipsReservedLiteralAndLeavesItUntouched) {
 
 TEST(GuardMasker, CollisionGuardSkipsEveryReservedCounterValue) {
     auto fx = build_rules({email_rule()});
-    Guard::MaskResult got = Guard::mask_texts(
-        {"seen <EMAIL_1> and <EMAIL_2> already; alice@example.com then bob@example.com"}, fx.rules);
+    Guard::MaskResult got =
+        Guard::mask_texts({"seen <EMAIL_1> and <EMAIL_2> already; alice@example.com then bob@example.com"}, fx.rules);
 
     ASSERT_EQ(got.state.replacements.size(), 2u);
     EXPECT_EQ(got.state.replacements[0].placeholder, "<EMAIL_3>");
@@ -248,8 +249,8 @@ TEST(GuardMasker, UnionSpanCoalescedMatchUsesAttributedRulePlaceholder) {
 
 TEST(GuardMasker, MultiTextCounterContinuesAcrossTexts) {
     auto fx = build_rules({email_rule()});
-    Guard::MaskResult got = Guard::mask_texts(
-        {"a@example.com", "b@example.com", "a@example.com again plus c@example.com"}, fx.rules);
+    Guard::MaskResult got =
+        Guard::mask_texts({"a@example.com", "b@example.com", "a@example.com again plus c@example.com"}, fx.rules);
 
     EXPECT_EQ(got.masked_texts[0], "<EMAIL_1>");
     EXPECT_EQ(got.masked_texts[1], "<EMAIL_2>");
@@ -552,9 +553,9 @@ TEST(GuardMaskerState, StateAccumulatesAcrossMultipleMaskTextCalls) {
     EXPECT_EQ(state.replacements()[2].original, "other");
     EXPECT_EQ(state.replacements()[2].placeholder, "<SECRET_2>");
 
-    EXPECT_EQ(state.triggered_rules(),
-              (std::vector<std::string>{"api.key", "credentials.other", "credentials.secret",
-                                        "credentials.secret.repeat"}));
+    EXPECT_EQ(
+        state.triggered_rules(),
+        (std::vector<std::string>{"api.key", "credentials.other", "credentials.secret", "credentials.secret.repeat"}));
     EXPECT_EQ(state.triggered_data_types(), (std::vector<DataType>{DataType::Credentials, DataType::ApiKeys}));
 }
 
