@@ -514,6 +514,20 @@ TEST(GuardMasker, ScanTextsParallelChunksCoverEveryTextWithoutGapsOrOverlap) {
     }
 }
 
+TEST(GuardMasker, WarmUpRulesToleratesNullEntries) {
+    // warm_up_rules (see Masker.hpp's file-level doc comment on the
+    // text-level fan-out's shared-RE2-object concurrency mitigation) must
+    // not crash on the same null-safety edge cases scan_rules itself
+    // defends against: a null CompiledRule* entry, or a CompiledRule whose
+    // `re` was never compiled.
+    auto fx = build_rules({make_rule("ok.rule", "abc", "A")});
+    Guard::CompiledRule broken;  // re left null
+    std::vector<const Guard::CompiledRule*> rules{fx.rules[0], nullptr, &broken};
+
+    EXPECT_NO_THROW(Guard::detail::warm_up_rules(rules));
+    EXPECT_NO_THROW(Guard::detail::warm_up_rules({}));
+}
+
 // ── Reserved-placeholder collection ────────────────────────────────────────
 
 TEST(GuardMasker, ReservedPlaceholdersCollectsEveryLookalikeToken) {

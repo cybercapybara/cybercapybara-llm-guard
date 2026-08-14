@@ -392,6 +392,32 @@ inline std::size_t text_scan_worker_count(const std::vector<std::string>& texts,
     return std::min(texts.size(), hw);
 }
 
+// Text-level fan-out (below) is the ONLY place in this codebase where
+// multiple OS threads call RE2::Match concurrently on the SAME RE2 object:
+// Scanner.hpp's OWN internal fan-out (detail::scan_parallel) partitions
+// rules BY INDEX across its workers, so no single rule's compiled RE2 is
+// ever touched by more than one of ITS threads -- but here, every worker
+// scans a DIFFERENT slice of texts against the SAME shared `rules`. A
+// freshly-built CompiledRule's RE2 has never been matched before (its DFA
+// is constructed lazily, on first use); forcing that first construction to
+// happen exactly once, serially, on the CALLING thread -- strictly before
+// any worker thread can reach the same RE2 object -- avoids racing RE2's
+// own lazy-initialization/cache-growth machinery the very first time each
+// pattern is exercised, which is exactly the scenario a request's first
+// concurrent scan hits (the compiled rule set was just resolved from the
+// registry and is, in the vast majority of real deployments, warm already
+// from earlier serial-path traffic -- but nothing upstream of this function
+// guarantees that, and a synthetic/benchmark caller that only ever sends
+// large, parallel-eligible batches would hit a stone-cold rule set on every
+// request).
+inline void warm_up_rules(const std::vector<const CompiledRule*>& rules) {
+    static constexpr std::string_view kProbe = " ";
+    for (const CompiledRule* cr : rules) {
+        if (cr && cr->re)
+            cr->re->Match(kProbe, 0, kProbe.size(), RE2::UNANCHORED, nullptr, 0);
+    }
+}
+
 // Ports `scanTexts` (handle.go:126-170): scans every text against `rules`,
 // sequentially (stopping at the first failing index -- "no point scanning
 // the remaining texts") when fan-out doesn't apply. When it does apply,
@@ -419,6 +445,8 @@ inline std::vector<TextScanResult> scan_texts(const std::vector<std::string>& te
         }
         return results;
     }
+
+    warm_up_rules(rules);
 
     const std::size_t n = texts.size();
     const std::size_t chunk_size = (n + workers - 1) / workers;  // ceil(n / workers)
