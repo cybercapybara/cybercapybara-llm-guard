@@ -24,6 +24,7 @@ and the OS package docs under `/usr/share/doc/*/copyright` in the runtime image.
 | nlohmann/json | MIT |
 | re2 | BSD-3-Clause (added in bootstrap; enters `vcpkg.json` in the next task) |
 | yaml-cpp | MIT (added in bootstrap; enters `vcpkg.json` in the next task) |
+| utf8proc | MIT |
 | GoogleTest | BSD-3-Clause (tests only — not shipped in runtime images) |
 
 ## Runtime — system libraries (apt, present in the runtime image)
