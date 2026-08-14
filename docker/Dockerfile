@@ -168,10 +168,12 @@ RUN cmake -B build-san -G Ninja \
 # and futexes rather than pthread primitives, so TSan's interceptors see no
 # happens-before edge and report phantom races inside
 # absl::synchronization_internal the moment two threads call RE2::Match. The
-# only fix is to compile the dependency tree itself with -fsanitize=thread, in
-# its OWN install root under its own triplet (triplets/x64-linux-tsan.cmake) —
-# the triplet name is part of vcpkg's ABI hash, so this tree can never collide
-# with, or invalidate, the plain one in /app/build/vcpkg_installed.
+# only fix is to compile those libraries themselves with -fsanitize=thread, in
+# a dependency tree with its OWN install root and its own triplet
+# (triplets/x64-linux-tsan.cmake — read it for why re2 + abseil and not the
+# whole tree). The triplet name is part of vcpkg's ABI hash, so this tree can
+# never collide with, or invalidate, the plain one in
+# /app/build/vcpkg_installed.
 #
 # It hangs off `toolchain`, not `builder`: keyed on vcpkg.json + the triplet
 # file only, it survives every source-only change exactly like the plain dep
