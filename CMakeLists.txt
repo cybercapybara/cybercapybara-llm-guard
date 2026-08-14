@@ -94,6 +94,7 @@ find_package(opentelemetry-cpp CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(re2 CONFIG REQUIRED)      # linear-time regex engine for the detection rules
 find_package(yaml-cpp CONFIG REQUIRED) # rule-catalog parsing (configs/*.yaml)
+find_package(utf8proc CONFIG REQUIRED) # Unicode-aware lowercasing of rule keywords/banlist (src/guard/Unicode.hpp)
 find_package(GTest CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 find_package(OpenSSL REQUIRED)  # HMAC-SHA256 / SHA-256 / CSPRNG in Utils::Crypto
@@ -132,6 +133,7 @@ set(COMMON_LIBS
     nlohmann_json::nlohmann_json
     re2::re2
     yaml-cpp::yaml-cpp
+    utf8proc::utf8proc
     OpenSSL::Crypto
     CURL::libcurl
     Threads::Threads

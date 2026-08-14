@@ -18,6 +18,8 @@
 #include <string_view>
 #include <vector>
 
+#include "guard/Unicode.hpp"
+
 namespace Guard {
 
 // User-facing toggle category. Values and names mirror the Go reference's
@@ -32,15 +34,6 @@ enum class DataType : int {
     PersonalData = 5,
     Custom = 6,
 };
-
-namespace detail {
-
-inline std::string to_upper_(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
-    return s;
-}
-
-}  // namespace detail
 
 /**
  * @brief Parses a DataType from either its numeric string ("1") or its
@@ -63,7 +56,7 @@ inline std::optional<DataType> data_type_from_string(std::string_view s) {
         return static_cast<DataType>(value);
     }
 
-    const std::string upper = detail::to_upper_(std::string(s));
+    const std::string upper = detail::ascii_to_upper(std::string(s));
     if (upper == "UNSPECIFIED")
         return DataType::Unspecified;
     if (upper == "CREDENTIALS")

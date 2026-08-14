@@ -8,8 +8,10 @@
  *              group entries, each carrying `rules:`.
  *            - a rule's `group` and `data_type` are NOT read from the rule
  *              itself; they are inherited from the enclosing group entry.
- *            - `keywords` and `banlist` are lower-cased at load time so
- *              matching downstream can do a plain case-sensitive compare.
+ *            - `keywords` and `banlist` are lower-cased at load time
+ *              (Unicode-aware, via guard/Unicode.hpp::to_lower_utf8 — the
+ *              real catalogs carry non-ASCII keywords) so matching
+ *              downstream can do a plain case-sensitive compare.
  *            - loading the same file path twice is a no-op (paths are
  *              deduped before reading).
  *            - a `rule_id` seen in more than one file throws
@@ -23,18 +25,18 @@
 
 #pragma once
 
-#include <algorithm>
-#include <cctype>
 #include <cstddef>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 #include <yaml-cpp/yaml.h>
 
 #include "guard/Errors.hpp"
 #include "guard/Rule.hpp"
+#include "guard/Unicode.hpp"
 
 namespace Guard {
 
@@ -45,24 +47,14 @@ struct LoadedRules {
 
 namespace detail {
 
-inline std::string rules_yaml_to_lower_(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return s;
-}
-
-inline std::vector<std::string> rules_yaml_lower_all_(std::vector<std::string> values) {
+// Unicode-aware: keywords/banlist are free-form catalog text an operator
+// may write in any script (the real catalogs carry Cyrillic keywords like
+// "ИНН"/"ОГРН"). See guard/Unicode.hpp for why a byte-wise lowercase isn't
+// good enough here.
+inline std::vector<std::string> lower_all_utf8_(std::vector<std::string> values) {
     for (auto& v : values)
-        v = rules_yaml_to_lower_(std::move(v));
+        v = to_lower_utf8(v);
     return values;
-}
-
-inline std::string rules_yaml_trim_(const std::string& s) {
-    auto not_space = [](unsigned char c) { return std::isspace(c) == 0; };
-    auto begin = std::find_if(s.begin(), s.end(), not_space);
-    auto end = std::find_if(s.rbegin(), s.rend(), not_space).base();
-    if (begin >= end)
-        return "";
-    return std::string(begin, end);
 }
 
 inline Rule parse_rule_(const YAML::Node& node, const std::string& path) {
@@ -75,7 +67,7 @@ inline Rule parse_rule_(const YAML::Node& node, const std::string& path) {
         if (node["regex"])
             r.regex = node["regex"].as<std::string>();
         if (node["keywords"])
-            r.keywords = rules_yaml_lower_all_(node["keywords"].as<std::vector<std::string>>());
+            r.keywords = lower_all_utf8_(node["keywords"].as<std::vector<std::string>>());
         if (node["validators"])
             r.validators = node["validators"].as<std::vector<std::string>>();
         if (node["min_length"])
@@ -83,12 +75,10 @@ inline Rule parse_rule_(const YAML::Node& node, const std::string& path) {
         if (node["entropy"])
             r.entropy = node["entropy"].as<double>();
         if (node["banlist"])
-            r.banlist = rules_yaml_lower_all_(node["banlist"].as<std::vector<std::string>>());
-        // Matches the Go reference exactly: `default_on` has no YAML default
-        // spelled out there either, so an omitted key decodes to the zero
-        // value (false), not the struct's default-construction value (true,
-        // which only applies to a Rule built outside the loader).
-        r.default_on = node["default_on"] && node["default_on"].as<bool>();
+            r.banlist = lower_all_utf8_(node["banlist"].as<std::vector<std::string>>());
+        // Absent key keeps the declared default (contract; Go's DefaultOn is inert).
+        if (node["default_on"])
+            r.default_on = node["default_on"].as<bool>();
         if (YAML::Node m = node["masking"]) {
             if (m["capture_groups"])
                 r.masking.capture_groups = m["capture_groups"].as<std::vector<int>>();
@@ -124,8 +114,11 @@ inline LoadedRules load_rules_file(const std::string& path) {
     } catch (const YAML::Exception& e) {
         throw RuleError(RuleError::Code::ParseError, "parse rules YAML " + path + ": " + e.what());
     }
-    if (!groups_node || !groups_node.IsSequence())
-        return result;
+    if (!groups_node)
+        return result;  // key entirely absent: an empty catalog, not an error.
+    if (!groups_node.IsSequence()) {
+        throw RuleError(RuleError::Code::ParseError, "guardrails_regex_rules is not a sequence in " + path);
+    }
 
     for (const auto& g : groups_node) {
         DataTypeGroup group{};
@@ -174,7 +167,7 @@ inline LoadedRules load_rules_files(const std::vector<std::string>& paths) {
     std::size_t loaded_files = 0;
 
     for (const auto& raw_path : paths) {
-        const std::string path = detail::rules_yaml_trim_(raw_path);
+        const std::string path = detail::ascii_trim(raw_path);
         if (path.empty())
             continue;
         if (!seen_paths.insert(path).second)
