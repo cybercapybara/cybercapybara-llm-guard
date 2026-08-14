@@ -29,7 +29,9 @@
 
 namespace {
 
-Guard::Rule make_rule(std::string id, std::string regex = "[A-Z]+", std::string placeholder = "TEST",
+Guard::Rule make_rule(std::string id,
+                      std::string regex = "[A-Z]+",
+                      std::string placeholder = "TEST",
                       Guard::DataType data_type = Guard::DataType::Credentials) {
     Guard::Rule r;
     r.id = std::move(id);

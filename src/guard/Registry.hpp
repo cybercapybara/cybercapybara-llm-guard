@@ -158,8 +158,7 @@ public:
 
         auto re = std::make_shared<RE2>("(?m)" + r.regex);
         if (!re->ok()) {
-            throw RuleError(RuleError::Code::BadRegex,
-                            "compile guardrails rule '" + r.id + "' regex: " + re->error());
+            throw RuleError(RuleError::Code::BadRegex, "compile guardrails rule '" + r.id + "' regex: " + re->error());
         }
 
         const int num_groups = re->NumberOfCapturingGroups();
