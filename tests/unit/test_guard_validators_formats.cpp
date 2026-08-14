@@ -131,6 +131,17 @@ TEST(GuardValidatorsFormats, ShannonEntropy) {
     EXPECT_NEAR(Guard::shannon_entropy("\xd1\x8f\xd1\x8f\xd1\x8f\xd1\x8f"), 0.0, 1e-6);  // "яяяя"
 }
 
+// Differential-fuzz follow-up (code review on PR #5): "\xED\xA0\x80" is the
+// 3-byte UTF-8 encoding of U+D800, a UTF-16 surrogate half with no valid
+// UTF-8 representation. Go's utf8.DecodeRuneInString rejects it and yields
+// RuneError (U+FFFD) for the lead byte alone, then retries from the next
+// byte -- so all three bytes here decode as three separate U+FFFD runs (one
+// symbol, uniform distribution), giving entropy 0, not the ~1.58 bits/char a
+// naive "surrogate is just another codepoint" decode would produce.
+TEST(GuardValidatorsFormats, ShannonEntropyRejectsUtf8EncodedSurrogate) {
+    EXPECT_NEAR(Guard::shannon_entropy("\xED\xA0\x80"), 0.0, 1e-6);
+}
+
 TEST(GuardValidatorsFormats, ShannonEntropyNonPowerDistribution) {
     const double want = -(0.75 * std::log2(0.75)) - (0.25 * std::log2(0.25));
     EXPECT_NEAR(Guard::shannon_entropy("aaab"), want, 1e-6);
@@ -161,6 +172,26 @@ TEST(GuardValidatorsFormats, IpPrimitivesDirect) {
     EXPECT_FALSE(Guard::ip_public("10.1.2.3"));
     EXPECT_TRUE(Guard::ip_private("10.1.2.0/24"));
     EXPECT_FALSE(Guard::ip_private("8.8.8.8"));
+    // 0.0.0.0 is unspecified -> private-or-local.
+    EXPECT_TRUE(Guard::ip_private("0.0.0.0"));
+}
+
+// Differential-fuzz follow-up (code review on PR #5): libc's inet_pton is
+// platform-defined for exactly these two shapes and disagrees with Go's
+// net/netip in both directions -- macOS's libc accepts a leading-zero octet
+// that Go rejects, and glibc/musl reject a "%zone" suffix that Go accepts.
+// try_parse_v4 is now hand-rolled (strict dotted-quad, no inet_pton at all)
+// and parse_ip_candidate rejects any '%' outright, so both are portable
+// across CI's Linux runners and a macOS dev machine alike.
+TEST(GuardValidatorsFormats, IpV4RejectsLeadingZeroOctet) {
+    EXPECT_FALSE(Guard::ip_v4("010.1.2.3"));
+    EXPECT_FALSE(Guard::passes_validators("010.1.2.3", rule_with_validators({"ip_v4"})));
+    EXPECT_FALSE(Guard::passes_validators("010.1.2.3", rule_with_validators({"ip_private"})));
+}
+
+TEST(GuardValidatorsFormats, IpV6RejectsZoneSuffix) {
+    EXPECT_FALSE(Guard::ip_v6("fe80::1%eth0"));
+    EXPECT_FALSE(Guard::passes_validators("fe80::1%eth0", rule_with_validators({"ip_v6"})));
 }
 
 // ── TestValidate (format/entropy/banlist/ip rows) ─────────────────────────

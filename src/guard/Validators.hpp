@@ -44,7 +44,6 @@
 #pragma once
 
 #include <array>
-#include <cctype>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -65,6 +64,15 @@
 namespace Guard {
 
 namespace detail {
+
+// Explicit ASCII-only fold, deliberately not std::toupper: std::toupper is
+// locale-dependent (its behavior for values outside the "C" locale's basic
+// execution charset is unspecified, and some locales remap bytes std::toupper
+// would otherwise leave alone), and IBAN input is ASCII-only by spec anyway
+// -- same convention as Unicode.hpp's ASCII-only helpers.
+inline char ascii_upper_char(char c) {
+    return (c >= 'a' && c <= 'z') ? static_cast<char>(c - 32) : c;
+}
 
 // Byte-wise ASCII-digit scan is equivalent to Go's rune-wise
 // `for _, c := range s { if c >= '0' && c <= '9' ... }`: valid UTF-8 never
@@ -199,7 +207,7 @@ inline std::string iban_mod97(std::string_view country_code, std::string_view bb
     rearranged += country_code;
     rearranged += "00";
     for (char& c : rearranged)
-        c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+        c = ascii_upper_char(c);
 
     std::string num_str;
     num_str.reserve(rearranged.size() * 2);
@@ -287,7 +295,7 @@ inline bool iban_valid(std::string_view iban_in) {
     for (char c : iban_in) {
         if (c == ' ')
             continue;
-        iban.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+        iban.push_back(ascii_upper_char(c));
     }
     if (iban.size() < 4)
         return false;
@@ -371,6 +379,15 @@ inline std::vector<std::string> split_dot(std::string_view s) {
 
 }  // namespace detail
 
+// Uses the repo's ASCII-only ascii_trim rather than porting a Unicode-aware
+// TrimSpace. This is a real divergence, not a no-op one: Go's strings.
+// TrimSpace also strips Unicode whitespace (e.g. U+00A0 NBSP), so an
+// NBSP-wrapped candidate that Go's EmailASCIIValid would accept fails here
+// (the NBSP survives into the shape checks and none of them accept it). It
+// is unreachable in practice, though: candidates only ever reach this
+// validator as regex capture groups from the shipped catalog patterns, none
+// of which can match leading/trailing Unicode whitespace into the captured
+// span, so no real candidate exercises the gap.
 inline bool email_ascii_valid(std::string_view candidate) {
     const std::string s = detail::ascii_trim(std::string(candidate));
     if (s.empty() || s.size() > 254)
@@ -515,7 +532,13 @@ inline Utf8Decoded decode_utf8(std::string_view s, std::size_t i) {
         const unsigned hi = (c0 & 0x0Fu) << 12;
         const unsigned mid = static_cast<unsigned>(c1) << 6;
         const auto cp = static_cast<char32_t>(hi | mid | static_cast<unsigned>(c2));
-        if (cp < 0x800)
+        // Overlong (cp < 0x800) and UTF-8-encoded surrogates (U+D800-U+DFFF
+        // have no valid UTF-8 encoding -- surrogates are UTF-16-only code
+        // points) are both invalid: Go's utf8.DecodeRuneInString rejects
+        // both and yields RuneError for exactly the lead byte, which is what
+        // returning {0xFFFD, 1} here does too (the caller retries from the
+        // very next byte, byte-at-a-time, same as Go's `for range`).
+        if (cp < 0x800 || (cp >= 0xD800 && cp <= 0xDFFF))
             return {0xFFFD, 1};
         return {cp, 3};
     }
@@ -593,6 +616,22 @@ inline double shannon_entropy(std::string_view s) {
 // (224.0.0.0/4, ff00::/8), so ORing just {private, loopback, multicast,
 // link-local-unicast, unspecified} below is boolean-identical to Go's
 // seven-way OR while avoiding two redundant predicates.
+//
+// IPv4 is parsed by hand rather than via inet_pton: libc's dotted-quad
+// parsing is platform-defined and disagrees with Go's net/netip in exactly
+// the cases that matter for a masking filter -- e.g. macOS's libc accepts a
+// leading-zero octet ("010.1.2.3", historically read as octal by some
+// stacks) that both Go and strict dotted-quad reject. try_parse_v4 below
+// enforces net/netip's strict grammar itself: exactly four decimal octets,
+// each 1-3 digits, value 0-255, no leading zeros.
+//
+// Zone identifiers ("fe80::1%eth0") are valid IPv6 literals per Go's
+// net/netip, but glibc/musl and macOS's libc disagree on whether inet_pton
+// accepts the "%zone" suffix at all. The regex-driven candidates this
+// scanner ever sees can't carry one (no rule captures a literal '%'), so
+// rather than chase three divergent platform behaviors, parse_ip_candidate
+// rejects any candidate containing '%' outright -- a deliberate, documented
+// divergence from Go (which accepts zones): conservative and portable.
 
 namespace detail {
 
@@ -602,14 +641,44 @@ struct ParsedIp {
     std::array<unsigned char, 16> v6bytes{};
 };
 
+// Strict dotted-quad: exactly 4 '.'-separated decimal octets, each 1-3
+// digits, value 0-255, no leading zeros on a multi-digit octet (so "0" is
+// fine but "010" is not). No use of inet_pton -- see the file-level comment
+// above for why libc's own dotted-quad parsing isn't trustworthy here.
 inline bool try_parse_v4(const std::string& s, std::array<unsigned char, 4>& out) {
-    in_addr addr{};
-    if (inet_pton(AF_INET, s.c_str(), &addr) != 1)
-        return false;
-    static_assert(sizeof(addr) == 4, "unexpected in_addr size");
-    const auto* bytes = reinterpret_cast<const unsigned char*>(&addr);
-    for (int i = 0; i < 4; ++i)
-        out[static_cast<std::size_t>(i)] = bytes[i];
+    std::size_t start = 0;
+    for (int octet_idx = 0; octet_idx < 4; ++octet_idx) {
+        const bool last = octet_idx == 3;
+        const auto dot = s.find('.', start);
+        std::size_t end{};
+        if (last) {
+            if (dot != std::string::npos)
+                return false;  // trailing garbage after the 4th octet
+            end = s.size();
+        } else {
+            if (dot == std::string::npos)
+                return false;  // fewer than 4 octets
+            end = dot;
+        }
+
+        const std::string_view octet(s.data() + start, end - start);
+        if (octet.empty() || octet.size() > 3)
+            return false;
+        if (octet.size() > 1 && octet[0] == '0')
+            return false;  // no leading zeros (Go's net/netip rejects "010")
+
+        int value = 0;
+        for (char c : octet) {
+            if (c < '0' || c > '9')
+                return false;
+            value = value * 10 + (c - '0');
+        }
+        if (value > 255)
+            return false;
+
+        out[static_cast<std::size_t>(octet_idx)] = static_cast<unsigned char>(value);
+        start = end + 1;
+    }
     return true;
 }
 
@@ -650,6 +719,9 @@ inline ParsedIp unmap_v6(const std::array<unsigned char, 16>& b) {
 inline std::optional<ParsedIp> parse_ip_candidate(std::string_view candidate) {
     const std::string s = ascii_trim(std::string(candidate));
     if (s.empty())
+        return std::nullopt;
+    // Zone suffixes: rejected outright, see the file-level comment above.
+    if (s.find('%') != std::string::npos)
         return std::nullopt;
 
     const auto slash = s.find('/');
