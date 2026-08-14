@@ -344,7 +344,7 @@ inline PlaceholderPattern build_placeholder_pattern(std::string_view placeholder
     const std::size_t max_len = regex_max_len(pattern);
     if (max_len == SIZE_MAX) {
         throw RuleError(RuleError::Code::UnboundedPlaceholder,
-                         "placeholder regex for '" + std::string(placeholder_name) + "' is unbounded: " + pattern);
+                        "placeholder regex for '" + std::string(placeholder_name) + "' is unbounded: " + pattern);
     }
     return PlaceholderPattern{std::move(pattern), max_len};
 }
