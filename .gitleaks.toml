@@ -15,4 +15,11 @@ paths = [
   '''configs/rules\.yaml''',
   '''configs/rules\.gitleaks\.generated\.yaml''',
   '''configs/gitleaks\.toml''',
+
+  # Task 1.9's ported per-rule detection corpus (tests/data/). The 220
+  # gitleaks-derived rules' fixtures are, by design, synthetic strings shaped
+  # exactly like real provider secrets — see tests/unit/test_guard_rule_corpus.cpp
+  # and task-1.9-report.md. Stored reversed-base64url, not plaintext, so this
+  # entry is defense-in-depth rather than load-bearing.
+  '''tests/data/guard_rule_cases\.yaml''',
 ]
