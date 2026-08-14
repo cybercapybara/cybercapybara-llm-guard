@@ -9,6 +9,7 @@ on:
     paths:
       - vcpkg.json
       - docker/Dockerfile
+      - triplets/**
   workflow_dispatch:
 
 permissions:
@@ -18,7 +19,10 @@ permissions:
 jobs:
   publish-builder-cache:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    # 90 → 180: the job now publishes two dependency trees (plain + TSan
+    # instrumented) back to back, each a cold vcpkg build when the manifest
+    # changed.
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
@@ -41,4 +45,27 @@ jobs:
           build-args: |
             BUILDKIT_INLINE_CACHE=1
           cache-from: type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
+          cache-to: type=inline
+
+      # Same idea for the ThreadSanitizer dependency tree (docker/Dockerfile
+      # stage 2c): it is a second, independently-installed vcpkg tree compiled
+      # with -fsanitize=thread, so a cold CI `tsan` job pays ~30-45 min for it.
+      # Publishing the stage gives that job (and `make warm-cache`) a registry
+      # fallback for when the branch-scoped gha cache is cold or evicted.
+      # NOTE: the ghcr package this creates is PRIVATE on first push; CI reads
+      # it unauthenticated, so flip it to public in the repo's package settings
+      # or the cache-from line in ci.yml stays a (harmless) miss.
+      - name: Build and push tsan-deps stage with inline cache
+        uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
+        with:
+          context: .
+          file: docker/Dockerfile
+          target: tsan-deps
+          push: true
+          tags: ghcr.io/${{ github.repository }}/tsan-deps:cache
+          build-args: |
+            BUILDKIT_INLINE_CACHE=1
+          cache-from: |
+            type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
+            type=registry,ref=ghcr.io/${{ github.repository }}/tsan-deps:cache
           cache-to: type=inline
