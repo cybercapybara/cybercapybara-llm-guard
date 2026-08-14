@@ -323,10 +323,11 @@ bool ip_public(std::string_view); bool ip_private(std::string_view);
 namespace Guard {
 struct PlaceholderPattern { std::string pattern; std::size_t max_len; };
 // "EMAIL" -> (?i)<\s{0,3}EMAIL[\s_-]{0,3}([0-9]{1,9})\s{0,3}> ; multi-token names
-// split on '_' joined by [\s_-]{0,3}. max_len computed from the RE2 parse tree;
-// throws RuleError{UnboundedPlaceholder} if unbounded.
+// split on '_' joined by [\s_-]{0,3}. max_len computed by a hand-rolled
+// bounded-subset regex parser (re2/regexp.h, RE2's internal parser header,
+// is not installed by the vcpkg re2 port); throws RuleError{UnboundedPlaceholder} if unbounded.
 PlaceholderPattern build_placeholder_pattern(std::string_view placeholder_name);
-std::size_t regex_max_len(const std::string& pattern); // RE2 parse-tree walk; SIZE_MAX if unbounded
+std::size_t regex_max_len(const std::string& pattern); // bounded-subset parser walk; SIZE_MAX if unbounded
 }
 ```
 
@@ -510,7 +511,7 @@ EXPECT_EQ(Guard::regex_max_len("a{2,5}b"), 6u);
 EXPECT_EQ(Guard::regex_max_len("a+"), SIZE_MAX);         // unbounded
 ```
 
-- [ ] **Step 2: Implement.** Pattern template per spec §4.2. `regex_max_len` walks the parse tree via `re2::Regexp::Parse` (header `re2/regexp.h`; call `->Decref()` when done) summing/maxing per op (Literal/CharClass=rune len, Concat=sum, Alternate=max, Repeat/Star/Plus=SIZE_MAX unless max bounded, Capture=child). Saturating arithmetic — never overflow.
+- [ ] **Step 2: Implement.** Pattern template per spec §4.2. `regex_max_len` was originally planned as a walk of the parse tree via `re2::Regexp::Parse` (header `re2/regexp.h`), but that header is RE2's internal parser API and is not installed by the vcpkg `re2` port (confirmed by CI); it's implemented instead as a hand-rolled recursive-descent parser over a restricted RE2/Perl regex subset, computing the same per-op bound (Literal/CharClass=rune len, Concat=sum, Alternate=max, Repeat/Star/Plus=SIZE_MAX unless max bounded, Capture=child) directly from the pattern text. Saturating arithmetic — never overflow.
 
 - [ ] **Step 3: Commit, push `feat/guard-placeholder-regex`, PR, CI green, merge.**
 
