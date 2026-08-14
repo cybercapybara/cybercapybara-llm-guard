@@ -252,17 +252,24 @@ TEST(GuardPrefilter, FullCatalogScanEquivalenceAcrossFiveDistinctRulesIncludingC
     auto reg = build_real_registry();
     auto rules = all_rule_pointers(*reg);
 
-    // Real, valid values for 5 distinct rules -- checksums reused from
+    // Real, valid values for 7 candidate rules (comfortable margin over the
+    // ">= 5 distinct" bar below, since exactly which of the 266 real rules
+    // end up as the coalesced "primary" for a given span isn't hand-provable
+    // against the full catalog -- only that the recall-preserving guarantee
+    // holds regardless, which expect_scan_equivalence checks separately).
+    // Each candidate sits on its own line, well clear of the others, so no
+    // broader catalog rule can span two candidates and coalesce them into
+    // one match. OGRN/inn-org checksums are reused from
     // test_guard_validators_checksums.cpp's own verified-valid vectors so
-    // the OGRN/inn-org rules' validators actually accept them and the
-    // match survives scan_one_rule's validator gate on BOTH sides of the
-    // on/off comparison (an equivalence test where nothing ever matches
-    // would be vacuous).
+    // their validators actually accept them.
     const std::string text =
-        "Реквизиты: ОГРН 1027700132195, ИНН 7707083893.\n"
+        "Реквизиты: ОГРН 1027700132195.\n"
+        "Реквизиты: ИНН 7707083893.\n"
         "adobe_key: \"deadbeefdeadbeefdeadbeefdeadbeef\"\n"
         "token id 0123456789abcdef0123456789abcdef done\n"
-        "Authorization: Bearer abcDEF123456ghijklMNOP\n";
+        "Authorization: Bearer abcDEF123456ghijklMNOP\n"
+        "contact person.name@example.com for access\n"
+        "server address 192.168.1.1 is up\n";
 
     // Sanity: prefilter-off alone must actually find several distinct rules
     // -- otherwise the equivalence check below would be trivially (and
