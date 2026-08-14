@@ -168,6 +168,21 @@
  *          too, just via the ordinary "keyword absent from every literal"
  *          path rather than a parse failure.
  *
+ *          KNOWN CONSERVATIVE LIMITATION -- `\Q...\E` (Perl/PCRE literal-quote
+ *          escape, NOT supported by RE2 or Go's `regexp/syntax` at all): an
+ *          unrecognized alphanumeric escape like `\Q` or `\E` aborts the
+ *          WHOLE parse (`PrefilterParseFailure`) rather than becoming a local
+ *          `Unsupported` atom -- see `PrefilterParser::parse_escape`'s
+ *          `default` case for why this needs to be a global abort, not a
+ *          local one, unlike every other `Unsupported` construct in this
+ *          file. Zero catalog instances (`\Q` never appears in either shipped
+ *          catalog); a pattern using it isn't valid RE2 syntax anyway, so
+ *          `Registry::compile_rule`'s own `RE2` construction would already
+ *          reject it before `regex_guarantees_keyword` is ever called on it
+ *          in every real caller -- this only matters for a direct call with
+ *          deliberately invalid syntax (as this file's own unit tests do, to
+ *          pin the conservative behavior).
+ *
  *          `regex_guarantees_keyword` itself does the lowercasing of both the
  *          matched literal text and the incoming `keywords` (via
  *          `Guard::to_lower_utf8`) -- unlike Go's `regexGuaranteesKeyword`,
@@ -175,10 +190,21 @@
  *          `loweredKeywords` before calling it. Lowercasing here too is a
  *          harmless no-op for the already-lowercased keywords
  *          `Registry::compile_rule` passes (`Rule::keywords` is lowercased at
- *          YAML-load time, see `RulesYaml.hpp`), and it keeps this function
- *          correct and self-contained for any other caller (including this
- *          file's own unit tests, several of which call it directly with
- *          mixed-case keywords per the task brief).
+ *          YAML-load time, see `RulesYaml.hpp`, for the common YAML-catalog
+ *          path), and it keeps this function correct and self-contained for
+ *          any other caller (including this file's own unit tests, several
+ *          of which call it directly with mixed-case keywords per the task
+ *          brief). This is a SEPARATE concern from `CompiledRule::
+ *          prefilter_keywords` (`Registry.hpp`) -- the lowered copy the
+ *          *scanner* matches against at request time, which
+ *          `Registry::compile_rule` computes unconditionally from
+ *          `r.keywords` regardless of how the rule was constructed (a rule
+ *          built outside the YAML loader, e.g. by a future configuration
+ *          API, is not guaranteed to arrive with already-lowered keywords).
+ *          `regex_guarantees_keyword`'s own internal lowercasing only ever
+ *          affects the eligibility *verdict* computed here at compile time;
+ *          it does not, by itself, give the scanner anything lowercased to
+ *          match against later.
  */
 
 #pragma once
@@ -701,7 +727,33 @@ private:
                 return make_unsupported();
             }
             default:
-                return make_literal(consume_rune(), fold_case_);  // literal escaped char, e.g. "\."
+                // RE2/Go-regexp-syntax only allows escaping PUNCTUATION as an
+                // identity escape (`\.` for a literal '.', `\-` for a literal
+                // '-', ...). Escaping an ASCII letter or digit that isn't one
+                // of the specific escapes already handled above (`\Q`, `\Y`,
+                // `\8`, ...) is not valid syntax at all -- Go's own
+                // `regexp/syntax.Parse` rejects it outright ("invalid escape
+                // sequence"), so a pattern containing one never reaches
+                // `regexGuaranteesKeyword` in the Go reference either (every
+                // real caller here already has `r.regex` proven RE2-parseable
+                // by `Registry::compile_rule`'s earlier `RE2` construction).
+                // Abort the WHOLE parse here (`PrefilterParseFailure` ->
+                // `false` overall) rather than marking just this one atom
+                // `Unsupported` and continuing -- unlike a char class or `.`
+                // (valid, successfully-parsed RE2 constructs that simply
+                // can't prove a literal, where continuing to parse siblings
+                // is exactly right), an unrecognized alphanumeric escape means
+                // the pattern itself is unparseable, so nothing else in it can
+                // be trusted as a genuine literal either. This closes the one
+                // constructible unsound "true": without this check,
+                // `\Qsecret\E` parses as `Unsupported` + `Literal("secret")` +
+                // `Unsupported`, and `Concat`'s "any child suffices" rule
+                // would wrongly prove a `secret` (or `qsecret`) keyword
+                // guarantee from a pattern that doesn't actually mean what it
+                // looks like under real RE2/Go semantics.
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+                    throw PrefilterParseFailure{};
+                return make_literal(consume_rune(), fold_case_);  // literal escaped punctuation, e.g. "\."
         }
     }
 };

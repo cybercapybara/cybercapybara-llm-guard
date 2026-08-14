@@ -266,6 +266,17 @@ inline constexpr std::size_t kParallelRuleThreshold = 4;
 // `rules []registry.CompiledRule` there), so this returns a freshly
 // allocated filtered view and never mutates the input.
 //
+// Matches against `cr->prefilter_keywords` (Registry.hpp), NOT
+// `cr->rule.keywords` -- the former is guaranteed lowercased by
+// `Registry::compile_rule` regardless of how the rule was constructed; the
+// latter is only lowercased as a side effect of the YAML loader
+// (`RulesYaml.hpp`) and is NOT guaranteed lowercased for a rule built any
+// other way (e.g. a future configuration API). Matching raw, possibly
+// mixed-case keywords against `lower` (always lowercased below) would
+// silently never hit for such a rule -- prefilter_eligible would be true
+// (the prover itself lowercases internally) but every scan would find zero
+// keyword hits, dropping every match the regex would otherwise have found.
+//
 // `text` is lowercased at most once (lazily, only once the first eligible
 // rule is seen), matching Go's `lowered` bool guard exactly: a rule set with
 // no eligible rules pays nothing and skips the whole body copy.
@@ -292,7 +303,7 @@ inline std::vector<const CompiledRule*> filter_by_keywords(std::string_view text
             lowered = true;
         }
         bool hit = false;
-        for (const auto& kw : cr->rule.keywords) {
+        for (const auto& kw : cr->prefilter_keywords) {
             if (!kw.empty() && lower.find(kw) != std::string::npos) {
                 hit = true;
                 break;

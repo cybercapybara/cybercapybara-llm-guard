@@ -61,14 +61,30 @@
  *              parses `r.regex` itself, NOT `"(?m)" + r.regex` — mirrors
  *              Go's `prefilterKeywords(rl.Regex, rl.Keywords)`, which parses
  *              the un-prefixed source (the multiline flag doesn't affect
- *              literal matching, so it's irrelevant to the proof). Unlike
- *              Go's `CompiledRule`, this port has no separate
- *              `PrefilterKeywords []string` field: when `prefilter_eligible`
- *              is `true`, the scanner (Scanner.hpp) reuses `rule.keywords`
- *              directly for the substring check — they are already
- *              lowercased at YAML-load time (`RulesYaml.hpp`), exactly the
- *              form Go's `PrefilterKeywords` stores, so no second copy is
- *              needed.
+ *              literal matching, so it's irrelevant to the proof).
+ *              `CompiledRule::prefilter_keywords` mirrors Go's
+ *              `CompiledRule.PrefilterKeywords []string` directly: `r.
+ *              keywords` lowercased via `Guard::to_lower_utf8`, computed
+ *              unconditionally (not gated on `prefilter_eligible` — cheap,
+ *              and it keeps the two independently correct rather than
+ *              coupled). CANNOT be skipped in favor of reading `rule.
+ *              keywords` straight off the (unlowered, in general)
+ *              `Rule` — `RulesYaml.hpp` happens to lowercase keywords as a
+ *              side effect of the YAML loader, but `compile_rule` is the
+ *              single validation path for a rule built ANY way (a future
+ *              configuration API's rules are not guaranteed pre-lowered);
+ *              `regex_guarantees_keyword` itself lowercases keywords
+ *              internally purely to decide the eligibility *verdict*, which
+ *              does not, by itself, hand the scanner anything lowercased to
+ *              match against later. Feeding the scanner raw, possibly
+ *              mixed-case keywords against its always-lowercased scan text
+ *              would silently zero out every hit for such a rule (caught by
+ *              code review during Task 1.8 — see
+ *              `GuardScanner.UppercaseKeywordNotPreLoweredStillHitsAfterPrefilterKeywordsFix`
+ *              in `test_guard_scanner.cpp`). NOTE: `prefilter_keywords` is a
+ *              `CompiledRule` field this port added beyond what
+ *              `phase1-interfaces.md` documented as of Task 1.7 — flagged
+ *              for that doc to be updated (interface doc is controller-owned).
  *            - DEVIATION FROM GO — no `spdlog` in the engine: Go's
  *              `Registry.PrefilterIneligibleRuleIDs()` exists purely so a
  *              caller can log, at startup, which keyword-bearing rules the
@@ -125,9 +141,18 @@ struct CompiledRule {
     std::shared_ptr<const RE2> placeholder_re;  // tolerant recognizer, capture 1 = number; null if blank placeholder
     std::size_t placeholder_len{0};             // bound for SSE pending buffer; 0 if placeholder_re is null
     // True iff rule.keywords is non-empty AND regex_guarantees_keyword(rule.regex, rule.keywords)
-    // (Prefilter.hpp) proved every match of the regex contains one of them. When true, the scanner
-    // reuses rule.keywords (already lowercased) directly for the substring pre-check.
+    // (Prefilter.hpp) proved every match of the regex contains one of them.
     bool prefilter_eligible{false};
+    // rule.keywords, lowercased via Guard::to_lower_utf8 -- computed unconditionally in compile_rule
+    // (cheap; independent of prefilter_eligible) and consumed by the scanner's keyword-hit check when
+    // prefilter_eligible is true. NOTE this is a field CompiledRule did not have in phase1-interfaces.md
+    // as of Task 1.7 -- added here in Task 1.8; the interface doc (controller-owned) needs a matching
+    // update. Cannot reuse rule.keywords directly for this: RulesYaml.hpp lowercases keywords at
+    // YAML-load time, but Registry::compile_rule is also the single validation path for rules built any
+    // other way (e.g. a future configuration API), which need not have pre-lowered keywords -- an
+    // API-supplied rule with keywords={"Bearer"} must still substring-match against the scanner's
+    // lowered text, exactly mirroring Go's CompiledRule.PrefilterKeywords []string.
+    std::vector<std::string> prefilter_keywords;
 };
 
 namespace detail {
@@ -296,6 +321,16 @@ public:
         // empty keyword list, but the explicit check here documents the
         // short-circuit rather than relying on that implicitly.
         cr.prefilter_eligible = !r.keywords.empty() && regex_guarantees_keyword(r.regex, r.keywords);
+
+        // cr.prefilter_keywords: r.keywords lowercased via to_lower_utf8, computed
+        // unconditionally (cheap, and simpler than gating it on prefilter_eligible).
+        // Do NOT reuse r.keywords directly here: RulesYaml.hpp lowercases at YAML-load
+        // time, but compile_rule is the single validation path for rules from ANY
+        // source, including a future configuration API whose keywords are not
+        // guaranteed pre-lowered -- see CompiledRule::prefilter_keywords's doc comment.
+        cr.prefilter_keywords.reserve(r.keywords.size());
+        for (const auto& kw : r.keywords)
+            cr.prefilter_keywords.push_back(to_lower_utf8(kw));
 
         return cr;
     }
