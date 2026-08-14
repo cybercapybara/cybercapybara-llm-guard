@@ -2,40 +2,65 @@
  * @file Validators.hpp
  * @brief The 16 named `rule.validators` checks plus the `entropy`/`banlist`
  *        rule parameters, and the dispatch that ANDs them together.
- * @details Ports `pkg/guardrails/regex/validation/checksums.go` from the Go
- *          reference field-for-field. This first slice lands the seven
- *          checksum primitives (luhn/snils/inn_person/inn_org/ogrn/ogrnip/
- *          iban_mod97) plus `is_known_validator` (all 16 names -- it is a
- *          pure name lookup, so it doesn't need the format/entropy/banlist/
- *          IP validators to exist yet) and the `passes_validators` dispatch
- *          skeleton. The format validators, entropy, banlist, and IP checks
- *          land in a follow-up commit on this branch; until then their
- *          dispatch entries fall through to `passes_validators`' unknown-name
- *          branch (`return false`), which is also the documented behavior
- *          for a genuinely unrecognized validator name.
- *
- *          `passes_validators` mirrors `Validate(candidate, rule)`: it
- *          strips `value` to digits ONCE (mirroring Go's `stripNonDigits`,
- *          computed once up front) and shares that string across every
- *          digit-based validator (luhn/snils/inn_person/inn_org/ogrn/
- *          ogrnip); IBAN gets the raw (untouched) value, matching
- *          `IBANMod97Valid` in the Go reference, which never sees the
- *          stripped form.
+ * @details Ports `pkg/guardrails/regex/validation/{checksums,formats,entropy,
+ *          validate}.go` from the Go reference field-for-field:
+ *            - `passes_validators` mirrors `Validate(candidate, rule)`: it
+ *              strips `value` to digits ONCE (mirroring Go's
+ *              `stripNonDigits`, computed once up front) and shares that
+ *              string across every digit-based validator (luhn/snils/
+ *              inn_person/inn_org/ogrn/ogrnip/payment_card[_no_luhn]); IBAN
+ *              and email get the raw (untouched) value, matching
+ *              `IBANMod97Valid`/`EmailASCIIValid` in the Go reference, which
+ *              never see the stripped form.
+ *            - The `entropy` validator only rejects when BOTH the "entropy"
+ *              name is present in `rule.validators` AND `rule.entropy > 0`
+ *              (see `validate.go`'s `case rule.ValidatorEntropy`). A rule
+ *              that lists `entropy` but leaves `entropy: 0` (the field's
+ *              zero value) passes trivially, regardless of value — this is
+ *              deliberate Go behavior (`TestValidate/entropy_threshold_is_
+ *              ignored_when_unset`), not a gap. `rule.entropy` never gates
+ *              anything unless "entropy" also appears in `rule.validators`;
+ *              Go wires no automatic/implicit application from the field
+ *              alone.
+ *            - The `banlist` validator does a case-insensitive EXACT match
+ *              (`strings.ToLower(candidate) == banned`), not a substring
+ *              search — confirmed by `validate.go`'s `banlisted` helper and
+ *              its test (`banlisted("password1", ["password"])` is false).
+ *              `rule.banlist` entries are already lowercased by the YAML
+ *              loader (RulesYaml.hpp); only the candidate needs lowering
+ *              here, via the same Unicode-aware `to_lower_utf8` the loader
+ *              uses (Go's `strings.ToLower` is Unicode-aware too).
+ *            - Unknown validator name -> the whole call returns false at
+ *              runtime (`default: return false` in Go's `Validate`).
+ *              Rejecting an unrecognized name at *compile* time is
+ *              Registry::compile_rule's job in a later task, not this one.
+ *          `is_known_validator` covers all 16 names Go's `IsKnown` in
+ *          `registry.go` recognizes (its own test table only exercises 15 of
+ *          them, omitting `payment_card_no_luhn` — a gap in the Go test, not
+ *          in the Go implementation, which does list it; ours covers all
+ *          16, matching the implementation).
  */
 
 #pragma once
 
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 #include <vector>
 
+#include <arpa/inet.h>
+#include <netinet/in.h>
+
 #include "guard/Rule.hpp"
+#include "guard/Unicode.hpp"
 
 namespace Guard {
 
@@ -52,6 +77,14 @@ inline std::string strip_non_digits(std::string_view s) {
         if (c >= '0' && c <= '9')
             out.push_back(c);
     return out;
+}
+
+inline bool banlisted(std::string_view candidate, const std::vector<std::string>& banlist) {
+    const std::string lower = to_lower_utf8(candidate);
+    for (const auto& banned : banlist)
+        if (lower == banned)
+            return true;
+    return false;
 }
 
 // digits must be ASCII '0'-'9' only; caller (luhn_valid) enforces that.
@@ -266,21 +299,491 @@ inline bool iban_valid(std::string_view iban_in) {
     return detail::mod97_decimal_string(num_str) == 1;
 }
 
+// ── Format validators (Task 1.3) ────────────────────────────────────────
+
+namespace detail {
+
+inline bool is_ascii_local_part_char(char c) {
+    if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+        return true;
+    switch (c) {
+        case '!':
+        case '#':
+        case '$':
+        case '%':
+        case '&':
+        case '\'':
+        case '*':
+        case '+':
+        case '-':
+        case '/':
+        case '=':
+        case '?':
+        case '^':
+        case '_':
+        case '`':
+        case '{':
+        case '|':
+        case '}':
+        case '~':
+            return true;
+        default:
+            return false;
+    }
+}
+
+inline bool is_ascii_domain_char(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '-';
+}
+
+inline bool is_alpha(std::string_view s) {
+    if (s.empty())
+        return false;
+    for (char c : s)
+        if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')))
+            return false;
+    return true;
+}
+
+// Splits on '.', including empty parts for consecutive/leading/trailing dots
+// (the caller has usually already rejected those shapes, but this mirrors
+// Go's unconditional strings.Split so both languages see the same parts).
+inline std::vector<std::string> split_dot(std::string_view s) {
+    std::vector<std::string> parts;
+    std::size_t start = 0;
+    while (true) {
+        const auto dot = s.find('.', start);
+        if (dot == std::string_view::npos) {
+            parts.emplace_back(s.substr(start));
+            break;
+        }
+        parts.emplace_back(s.substr(start, dot - start));
+        start = dot + 1;
+    }
+    return parts;
+}
+
+}  // namespace detail
+
+inline bool email_ascii_valid(std::string_view candidate) {
+    const std::string s = detail::ascii_trim(std::string(candidate));
+    if (s.empty() || s.size() > 254)
+        return false;
+
+    const auto at = s.find('@');
+    if (at == std::string::npos)
+        return false;
+    const std::string local = s.substr(0, at);
+    const std::string domain = s.substr(at + 1);
+    if (local.empty() || domain.empty())
+        return false;
+    if (local.find("..") != std::string::npos || local.front() == '.' || local.back() == '.')
+        return false;
+    if (local.size() > 64 || domain.size() > 253)
+        return false;
+
+    for (const auto& part : detail::split_dot(local)) {
+        if (part.empty())
+            return false;
+        for (char c : part)
+            if (!detail::is_ascii_local_part_char(c))
+                return false;
+    }
+
+    const auto labels = detail::split_dot(domain);
+    if (labels.size() < 2)
+        return false;
+    for (std::size_t i = 0; i < labels.size(); ++i) {
+        const auto& label = labels[i];
+        if (label.empty() || label.size() > 63)
+            return false;
+        if (label.front() == '-' || label.back() == '-')
+            return false;
+        for (char c : label)
+            if (!detail::is_ascii_domain_char(c))
+                return false;
+        if (i == labels.size() - 1 && !detail::is_alpha(label))
+            return false;
+    }
+    return true;
+}
+
+namespace detail {
+
+inline bool all_digits(std::string_view s) {
+    if (s.empty())
+        return false;
+    for (char c : s)
+        if (c < '0' || c > '9')
+            return false;
+    return true;
+}
+
+inline bool has_prefix_digits(std::string_view s, std::string_view prefix) {
+    return s.size() >= prefix.size() && s.substr(0, prefix.size()) == prefix;
+}
+
+inline bool prefix_in_range(std::string_view s, std::size_t prefix_len, int lo, int hi) {
+    if (s.size() < prefix_len)
+        return false;
+    int n = 0;
+    for (std::size_t i = 0; i < prefix_len; ++i) {
+        const char c = s[i];
+        if (c < '0' || c > '9')
+            return false;
+        n = n * 10 + (c - '0');
+    }
+    return n >= lo && n <= hi;
+}
+
+}  // namespace detail
+
+// Brand/length table ported verbatim from formats.go's PaymentCardShape:
+// Visa 4 (13/16/19); Amex 34|37 (15); Mastercard 51-55|2221-2720 (16);
+// Discover 6011|644-649|65 (16-19); UnionPay 62 (16-19); Mir 2200-2204
+// (16-19). This matches the brief's summary table exactly -- no divergence
+// found against the Go source.
+inline bool payment_card_shape(std::string_view digits) {
+    if (!detail::all_digits(digits) || digits.size() < 13 || digits.size() > 19)
+        return false;
+
+    if (detail::has_prefix_digits(digits, "4"))
+        return digits.size() == 13 || digits.size() == 16 || digits.size() == 19;
+    if (detail::has_prefix_digits(digits, "34") || detail::has_prefix_digits(digits, "37"))
+        return digits.size() == 15;
+    if (detail::prefix_in_range(digits, 2, 51, 55) || detail::prefix_in_range(digits, 4, 2221, 2720))
+        return digits.size() == 16;
+    if (detail::has_prefix_digits(digits, "6011") || detail::prefix_in_range(digits, 3, 644, 649) ||
+        detail::has_prefix_digits(digits, "65"))
+        return digits.size() >= 16 && digits.size() <= 19;
+    if (detail::has_prefix_digits(digits, "62"))
+        return digits.size() >= 16 && digits.size() <= 19;
+    if (detail::prefix_in_range(digits, 4, 2200, 2204))
+        return digits.size() >= 16 && digits.size() <= 19;
+    return false;
+}
+
+inline bool payment_card_valid(std::string_view digits) {
+    return payment_card_shape(digits) && luhn_valid(digits);
+}
+
+// ── Shannon entropy ──────────────────────────────────────────────────────
+
+namespace detail {
+
+struct Utf8Decoded {
+    char32_t codepoint;
+    std::size_t length;
+};
+
+// Mirrors Go's `for range` over a string: on invalid/truncated UTF-8 it
+// yields U+FFFD and advances exactly one byte, matching utf8.DecodeRuneInString.
+inline Utf8Decoded decode_utf8(std::string_view s, std::size_t i) {
+    const auto cont = [&](std::size_t idx) -> int {
+        if (idx >= s.size())
+            return -1;
+        const auto c = static_cast<unsigned char>(s[idx]);
+        if ((c & 0xC0) != 0x80)
+            return -1;
+        return c & 0x3F;
+    };
+
+    const auto c0 = static_cast<unsigned char>(s[i]);
+    if ((c0 & 0x80) == 0)
+        return {c0, 1};
+
+    if ((c0 & 0xE0) == 0xC0) {
+        const int c1 = cont(i + 1);
+        if (c1 < 0)
+            return {0xFFFD, 1};
+        const auto cp = static_cast<char32_t>(((c0 & 0x1Fu) << 6) | static_cast<unsigned>(c1));
+        if (cp < 0x80)
+            return {0xFFFD, 1};
+        return {cp, 2};
+    }
+    if ((c0 & 0xF0) == 0xE0) {
+        const int c1 = cont(i + 1);
+        const int c2 = cont(i + 2);
+        if (c1 < 0 || c2 < 0)
+            return {0xFFFD, 1};
+        const auto cp = static_cast<char32_t>(((c0 & 0x0Fu) << 12) | (static_cast<unsigned>(c1) << 6) |
+                                               static_cast<unsigned>(c2));
+        if (cp < 0x800)
+            return {0xFFFD, 1};
+        return {cp, 3};
+    }
+    if ((c0 & 0xF8) == 0xF0) {
+        const int c1 = cont(i + 1);
+        const int c2 = cont(i + 2);
+        const int c3 = cont(i + 3);
+        if (c1 < 0 || c2 < 0 || c3 < 0)
+            return {0xFFFD, 1};
+        const auto cp = static_cast<char32_t>(((c0 & 0x07u) << 18) | (static_cast<unsigned>(c1) << 12) |
+                                               (static_cast<unsigned>(c2) << 6) | static_cast<unsigned>(c3));
+        if (cp < 0x10000 || cp > 0x10FFFF)
+            return {0xFFFD, 1};
+        return {cp, 4};
+    }
+    return {0xFFFD, 1};
+}
+
+}  // namespace detail
+
+inline double shannon_entropy(std::string_view s) {
+    if (s.empty())
+        return 0.0;
+
+    bool ascii = true;
+    for (unsigned char c : s) {
+        if (c > 127) {
+            ascii = false;
+            break;
+        }
+    }
+
+    if (ascii) {
+        std::array<int, 256> freq{};
+        for (unsigned char c : s)
+            ++freq[c];
+        const double n = static_cast<double>(s.size());
+        double entropy = 0.0;
+        for (int count : freq) {
+            if (count == 0)
+                continue;
+            const double p = count / n;
+            entropy -= p * std::log2(p);
+        }
+        return entropy;
+    }
+
+    std::unordered_map<char32_t, std::size_t> freq;
+    std::size_t total = 0;
+    std::size_t i = 0;
+    while (i < s.size()) {
+        const auto decoded = detail::decode_utf8(s, i);
+        ++freq[decoded.codepoint];
+        ++total;
+        i += decoded.length;
+    }
+    const double n = static_cast<double>(total);
+    double entropy = 0.0;
+    for (const auto& [codepoint, count] : freq) {
+        const double p = static_cast<double>(count) / n;
+        entropy -= p * std::log2(p);
+    }
+    return entropy;
+}
+
+// ── IP validators ────────────────────────────────────────────────────────
+//
+// Ported from formats.go's parseIPCandidate/isPrivateOrLocal (net/netip).
+// isPrivateOrLocal ORs private, loopback, multicast, link-local-unicast,
+// link-local-multicast, interface-local-multicast, and unspecified — but
+// link-local-multicast (224.0.0.0/24, ff02::/16) and interface-local-
+// multicast (ff01::/16) are both strict subsets of "multicast"
+// (224.0.0.0/4, ff00::/8), so ORing just {private, loopback, multicast,
+// link-local-unicast, unspecified} below is boolean-identical to Go's
+// seven-way OR while avoiding two redundant predicates.
+
+namespace detail {
+
+struct ParsedIp {
+    bool is_v4{false};
+    std::array<unsigned char, 4> v4bytes{};
+    std::array<unsigned char, 16> v6bytes{};
+};
+
+inline bool try_parse_v4(const std::string& s, std::array<unsigned char, 4>& out) {
+    in_addr addr{};
+    if (inet_pton(AF_INET, s.c_str(), &addr) != 1)
+        return false;
+    static_assert(sizeof(addr) == 4, "unexpected in_addr size");
+    const auto* bytes = reinterpret_cast<const unsigned char*>(&addr);
+    for (int i = 0; i < 4; ++i)
+        out[static_cast<std::size_t>(i)] = bytes[i];
+    return true;
+}
+
+inline bool try_parse_v6(const std::string& s, std::array<unsigned char, 16>& out) {
+    in6_addr addr{};
+    if (inet_pton(AF_INET6, s.c_str(), &addr) != 1)
+        return false;
+    static_assert(sizeof(addr) == 16, "unexpected in6_addr size");
+    const auto* bytes = reinterpret_cast<const unsigned char*>(&addr);
+    for (int i = 0; i < 16; ++i)
+        out[static_cast<std::size_t>(i)] = bytes[i];
+    return true;
+}
+
+inline bool is_v4_mapped_v6(const std::array<unsigned char, 16>& b) {
+    for (int i = 0; i < 10; ++i)
+        if (b[static_cast<std::size_t>(i)] != 0)
+            return false;
+    return b[10] == 0xff && b[11] == 0xff;
+}
+
+inline ParsedIp unmap_v6(const std::array<unsigned char, 16>& b) {
+    ParsedIp p;
+    p.is_v4 = true;
+    p.v4bytes = {b[12], b[13], b[14], b[15]};
+    return p;
+}
+
+// Trims whitespace, then either:
+//   - a CIDR form ("addr/bits"): parsed strictly -- if the address part
+//     doesn't parse or bits overflows the family's width, the whole
+//     candidate fails (no fallback to plain-address parsing), matching
+//     netip.ParsePrefix's all-or-nothing behavior; the prefix length is
+//     otherwise not used (a v4-in-v6 mapped address is still unmapped).
+//   - otherwise: leading/trailing '[' and ']' are trimmed (any mix, any
+//     count -- mirrors strings.Trim(s, "[]")), then parsed as a plain
+//     address.
+inline std::optional<ParsedIp> parse_ip_candidate(std::string_view candidate) {
+    const std::string s = ascii_trim(std::string(candidate));
+    if (s.empty())
+        return std::nullopt;
+
+    const auto slash = s.find('/');
+    if (slash != std::string::npos) {
+        const std::string addr_part = s.substr(0, slash);
+        const std::string prefix_part = s.substr(slash + 1);
+        if (prefix_part.empty())
+            return std::nullopt;
+        for (char c : prefix_part)
+            if (c < '0' || c > '9')
+                return std::nullopt;
+        int bits = 0;
+        for (char c : prefix_part) {
+            bits = bits * 10 + (c - '0');
+            if (bits > 128) {
+                bits = 129;
+                break;
+            }
+        }
+
+        std::array<unsigned char, 4> v4{};
+        if (try_parse_v4(addr_part, v4)) {
+            if (bits > 32)
+                return std::nullopt;
+            ParsedIp p;
+            p.is_v4 = true;
+            p.v4bytes = v4;
+            return p;
+        }
+        std::array<unsigned char, 16> v6{};
+        if (try_parse_v6(addr_part, v6)) {
+            if (bits > 128)
+                return std::nullopt;
+            return is_v4_mapped_v6(v6) ? unmap_v6(v6) : ParsedIp{false, {}, v6};
+        }
+        return std::nullopt;
+    }
+
+    std::size_t begin = 0;
+    std::size_t end = s.size();
+    while (begin < end && (s[begin] == '[' || s[begin] == ']'))
+        ++begin;
+    while (end > begin && (s[end - 1] == '[' || s[end - 1] == ']'))
+        --end;
+    const std::string trimmed = s.substr(begin, end - begin);
+
+    std::array<unsigned char, 4> v4{};
+    if (try_parse_v4(trimmed, v4)) {
+        ParsedIp p;
+        p.is_v4 = true;
+        p.v4bytes = v4;
+        return p;
+    }
+    std::array<unsigned char, 16> v6{};
+    if (try_parse_v6(trimmed, v6))
+        return is_v4_mapped_v6(v6) ? unmap_v6(v6) : ParsedIp{false, {}, v6};
+    return std::nullopt;
+}
+
+inline bool is_private_v4(const std::array<unsigned char, 4>& b) {
+    return b[0] == 10 || (b[0] == 172 && (b[1] & 0xf0) == 16) || (b[0] == 192 && b[1] == 168);
+}
+inline bool is_loopback_v4(const std::array<unsigned char, 4>& b) {
+    return b[0] == 127;
+}
+inline bool is_multicast_v4(const std::array<unsigned char, 4>& b) {
+    return (b[0] & 0xf0) == 0xe0;
+}
+inline bool is_link_local_v4(const std::array<unsigned char, 4>& b) {
+    return b[0] == 169 && b[1] == 254;
+}
+inline bool is_unspecified_v4(const std::array<unsigned char, 4>& b) {
+    return b[0] == 0 && b[1] == 0 && b[2] == 0 && b[3] == 0;
+}
+
+inline bool is_private_v6(const std::array<unsigned char, 16>& b) {
+    return (b[0] & 0xfe) == 0xfc;
+}
+inline bool is_loopback_v6(const std::array<unsigned char, 16>& b) {
+    for (int i = 0; i < 15; ++i)
+        if (b[static_cast<std::size_t>(i)] != 0)
+            return false;
+    return b[15] == 1;
+}
+inline bool is_multicast_v6(const std::array<unsigned char, 16>& b) {
+    return b[0] == 0xff;
+}
+inline bool is_link_local_v6(const std::array<unsigned char, 16>& b) {
+    return b[0] == 0xfe && (b[1] & 0xc0) == 0x80;
+}
+inline bool is_unspecified_v6(const std::array<unsigned char, 16>& b) {
+    for (unsigned char byte : b)
+        if (byte != 0)
+            return false;
+    return true;
+}
+
+inline bool is_private_or_local(const ParsedIp& p) {
+    if (p.is_v4)
+        return is_private_v4(p.v4bytes) || is_loopback_v4(p.v4bytes) || is_multicast_v4(p.v4bytes) ||
+               is_link_local_v4(p.v4bytes) || is_unspecified_v4(p.v4bytes);
+    return is_private_v6(p.v6bytes) || is_loopback_v6(p.v6bytes) || is_multicast_v6(p.v6bytes) ||
+           is_link_local_v6(p.v6bytes) || is_unspecified_v6(p.v6bytes);
+}
+
+}  // namespace detail
+
+inline bool ip_v4(std::string_view value) {
+    const auto p = detail::parse_ip_candidate(value);
+    return p.has_value() && p->is_v4;
+}
+
+inline bool ip_v6(std::string_view value) {
+    const auto p = detail::parse_ip_candidate(value);
+    return p.has_value() && !p->is_v4;
+}
+
+inline bool ip_public(std::string_view value) {
+    const auto p = detail::parse_ip_candidate(value);
+    return p.has_value() && !detail::is_private_or_local(*p);
+}
+
+inline bool ip_private(std::string_view value) {
+    const auto p = detail::parse_ip_candidate(value);
+    return p.has_value() && detail::is_private_or_local(*p);
+}
+
 // ── Dispatch ─────────────────────────────────────────────────────────────
 
 inline bool is_known_validator(std::string_view name) {
     static const std::unordered_set<std::string_view> kKnown = {
-        "luhn",         "snils",       "inn_person", "inn_org",  "ogrn",       "ogrnip",
-        "iban_mod97",   "email_ascii", "payment_card", "payment_card_no_luhn",
-        "entropy",      "banlist",     "ip_v4",      "ip_v6",    "ip_public",  "ip_private",
+        "luhn",       "snils",       "inn_person",  "inn_org",   "ogrn",     "ogrnip",
+        "iban_mod97", "email_ascii", "payment_card", "payment_card_no_luhn", "entropy",
+        "banlist",    "ip_v4",       "ip_v6",       "ip_public", "ip_private",
     };
     return kKnown.count(name) != 0;
 }
 
-// AND over rule.validators, mirroring validate.go's Validate. Only the
-// checksum branches are wired so far; the rest (added in a follow-up commit
-// on this branch) fall through to the unknown-name branch, which is also
-// the documented behavior for a genuinely unrecognized name.
+// AND over rule.validators, mirroring validate.go's Validate: each name maps
+// to one branch; "entropy"/"banlist" additionally consult rule.entropy /
+// rule.banlist (see the file-level doc comment for their exact gating); an
+// unrecognized name fails the whole call (matches Go's `default: return
+// false`).
 inline bool passes_validators(std::string_view value, const Rule& rule) {
     const std::string digits = detail::strip_non_digits(value);
 
@@ -305,6 +808,33 @@ inline bool passes_validators(std::string_view value, const Rule& rule) {
                 return false;
         } else if (validator == "iban_mod97") {
             if (!iban_valid(value))
+                return false;
+        } else if (validator == "email_ascii") {
+            if (!email_ascii_valid(value))
+                return false;
+        } else if (validator == "payment_card") {
+            if (!payment_card_valid(digits))
+                return false;
+        } else if (validator == "payment_card_no_luhn") {
+            if (!payment_card_shape(digits))
+                return false;
+        } else if (validator == "entropy") {
+            if (rule.entropy > 0 && shannon_entropy(value) < rule.entropy)
+                return false;
+        } else if (validator == "banlist") {
+            if (detail::banlisted(value, rule.banlist))
+                return false;
+        } else if (validator == "ip_v4") {
+            if (!ip_v4(value))
+                return false;
+        } else if (validator == "ip_v6") {
+            if (!ip_v6(value))
+                return false;
+        } else if (validator == "ip_public") {
+            if (!ip_public(value))
+                return false;
+        } else if (validator == "ip_private") {
+            if (!ip_private(value))
                 return false;
         } else {
             return false;
