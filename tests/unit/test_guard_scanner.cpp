@@ -31,8 +31,11 @@
 
 namespace {
 
-Guard::Rule make_rule(std::string id, std::string regex, std::vector<int> capture_groups = {},
-                      std::string placeholder = "TEST", Guard::DataType data_type = Guard::DataType::Custom) {
+Guard::Rule make_rule(std::string id,
+                      std::string regex,
+                      std::vector<int> capture_groups = {},
+                      std::string placeholder = "TEST",
+                      Guard::DataType data_type = Guard::DataType::Custom) {
     Guard::Rule r;
     r.id = std::move(id);
     r.name = r.id;
@@ -316,8 +319,8 @@ TEST(GuardScanner, AdjacentMatchesAreNotMerged) {
 // ── Realistic rules (email, luhn-validated card, coalescing) ─────────────
 
 TEST(GuardScanner, RealisticEmailAndLuhnValidatedCard) {
-    Guard::Rule email_rule = make_rule("pii.email", R"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})", {}, "EMAIL",
-                                       Guard::DataType::PersonalData);
+    Guard::Rule email_rule = make_rule(
+        "pii.email", R"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})", {}, "EMAIL", Guard::DataType::PersonalData);
 
     Guard::Rule card_rule = make_rule("payment.card", R"(\b\d{13,19}\b)", {}, "CARD", Guard::DataType::Credentials);
     card_rule.validators = {"luhn"};
@@ -373,8 +376,12 @@ TEST(GuardScanner, ScanRulesSmallAndLargeTextBothFindMatch) {
     // set over a small text (serial, below both thresholds) and a large
     // text (parallel, clears both) must find the same value.
     std::vector<Guard::Rule> defs{
-        make_rule("r1", "SECRET", {}, "S"), make_rule("r2", "zzz1", {}, "Z1"), make_rule("r3", "zzz2", {}, "Z2"),
-        make_rule("r4", "zzz3", {}, "Z3"),  make_rule("r5", "zzz4", {}, "Z4"), make_rule("r6", "zzz5", {}, "Z5"),
+        make_rule("r1", "SECRET", {}, "S"),
+        make_rule("r2", "zzz1", {}, "Z1"),
+        make_rule("r3", "zzz2", {}, "Z2"),
+        make_rule("r4", "zzz3", {}, "Z3"),
+        make_rule("r5", "zzz4", {}, "Z4"),
+        make_rule("r6", "zzz5", {}, "Z5"),
     };
     auto fx = build_rules(defs);
 
@@ -438,8 +445,11 @@ TEST(GuardScanner, ParallelWorkerExceptionSurfacesAsRuntimeError) {
     // checked precondition (null CompiledRule::re) instead of literally
     // reproducing Go's recovered nil-pointer panic.
     std::vector<Guard::Rule> defs{
-        make_rule("r1", "aaa", {}, "A"), make_rule("r2", "bbb", {}, "B"), make_rule("r3", "ccc", {}, "C"),
-        make_rule("r4", "ddd", {}, "D"), make_rule("r5", "eee", {}, "E"),
+        make_rule("r1", "aaa", {}, "A"),
+        make_rule("r2", "bbb", {}, "B"),
+        make_rule("r3", "ccc", {}, "C"),
+        make_rule("r4", "ddd", {}, "D"),
+        make_rule("r5", "eee", {}, "E"),
     };
     auto fx = build_rules(defs);
 

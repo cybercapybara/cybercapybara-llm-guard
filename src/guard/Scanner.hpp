@@ -220,7 +220,8 @@ struct SensitiveSpan {
 // zero bytes has a non-null `data()` and `size() == 0` -- both fall
 // through to the next configured group, exactly like Go's single
 // `groupStart < 0 || groupEnd <= groupStart` check collapses both cases.
-inline SensitiveSpan sensitive_span(const std::vector<std::string_view>& groups, std::string_view text,
+inline SensitiveSpan sensitive_span(const std::vector<std::string_view>& groups,
+                                    std::string_view text,
                                     const Rule& rule) {
     if (rule.masking.capture_groups.empty()) {
         const std::string_view full = groups[0];
@@ -338,7 +339,8 @@ inline std::size_t compute_worker_count(std::size_t num_rules, unsigned max_work
 // Ports `scanParallel` + `bucketRules` (scan.go:121-179). See the
 // file-level doc comment's "Parallel fan-out" section for the worker
 // design and exception-propagation adaptation.
-inline std::vector<ScanMatch> scan_parallel(std::string_view text, const std::vector<const CompiledRule*>& rules,
+inline std::vector<ScanMatch> scan_parallel(std::string_view text,
+                                            const std::vector<const CompiledRule*>& rules,
                                             const ScanOptions& opts) {
     const std::size_t num_workers = compute_worker_count(rules.size(), opts.max_workers);
     if (num_workers == 0)
@@ -380,8 +382,8 @@ inline std::vector<ScanMatch> scan_parallel(std::string_view text, const std::ve
 
     std::vector<ScanMatch> all;
     for (auto& bucket_matches : results)
-        all.insert(all.end(), std::make_move_iterator(bucket_matches.begin()),
-                   std::make_move_iterator(bucket_matches.end()));
+        all.insert(
+            all.end(), std::make_move_iterator(bucket_matches.begin()), std::make_move_iterator(bucket_matches.end()));
     return all;
 }
 
@@ -473,7 +475,8 @@ inline std::vector<ScanMatch> resolve_conflicts(std::vector<ScanMatch> matches) 
  *         caller is expected to fail open on this, per the interface
  *         contract).
  */
-inline std::vector<ScanMatch> scan_rules(std::string_view text, const std::vector<const CompiledRule*>& rules,
+inline std::vector<ScanMatch> scan_rules(std::string_view text,
+                                         const std::vector<const CompiledRule*>& rules,
                                          const ScanOptions& opts = {}) {
     // prefilter_enabled: no-op passthrough. See the file-level doc comment.
     (void)opts.prefilter_enabled;
