@@ -39,8 +39,7 @@ TEST(GuardPrefilter, KeywordIsALiteralInTheRegex) {
 }
 
 TEST(GuardPrefilter, VendorContextLiteralGitleaksStyle) {
-    EXPECT_TRUE(regex_guarantees_keyword(
-        R"((?i)[\w.-]{0,50}?(?:adobe)[\s'"]{0,3}([a-f0-9]{32}))", {"adobe"}));
+    EXPECT_TRUE(regex_guarantees_keyword(R"((?i)[\w.-]{0,50}?(?:adobe)[\s'"]{0,3}([a-f0-9]{32}))", {"adobe"}));
 }
 
 TEST(GuardPrefilter, EveryAlternationBranchContainsTheKeyword) {
@@ -71,8 +70,7 @@ TEST(GuardPrefilter, BareChecksumNumberInnLike) {
 }
 
 TEST(GuardPrefilter, AlternationBranchWithoutKeywordPassportLike) {
-    EXPECT_FALSE(
-        regex_guarantees_keyword(R"((?:паспорт|пасп\.?|серия)\s*(\d{6}))", {"паспорт", "серия", "номер"}));
+    EXPECT_FALSE(regex_guarantees_keyword(R"((?:паспорт|пасп\.?|серия)\s*(\d{6}))", {"паспорт", "серия", "номер"}));
 }
 
 TEST(GuardPrefilter, CaseInsensitiveAsciiLiteralStaysEligible) {
@@ -273,9 +271,10 @@ TEST(GuardPrefilter, FullCatalogScanEquivalenceAcrossFiveDistinctRulesIncludingC
     auto baseline = Guard::scan_rules(text, rules, off);
     std::vector<std::string> distinct_rule_ids;
     for (const auto& m : baseline) {
-        if (std::find(distinct_rule_ids.begin(), distinct_rule_ids.end(), m.rule->rule.id) ==
-            distinct_rule_ids.end())
-            distinct_rule_ids.push_back(m.rule->rule.id);
+        const auto& id = m.rule->rule.id;
+        const auto it = std::find(distinct_rule_ids.begin(), distinct_rule_ids.end(), id);
+        if (it == distinct_rule_ids.end())
+            distinct_rule_ids.push_back(id);
     }
     EXPECT_GE(distinct_rule_ids.size(), 5u) << "expected hits for >= 5 distinct rules to make this test meaningful";
 

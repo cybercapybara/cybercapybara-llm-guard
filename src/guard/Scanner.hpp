@@ -276,7 +276,7 @@ inline constexpr std::size_t kParallelRuleThreshold = 4;
 // `scan_one_rule`, and must still fire the same way whether or not the
 // pre-filter is enabled.
 inline std::vector<const CompiledRule*> filter_by_keywords(std::string_view text,
-                                                            const std::vector<const CompiledRule*>& rules) {
+                                                           const std::vector<const CompiledRule*>& rules) {
     std::string lower;
     bool lowered = false;
 
