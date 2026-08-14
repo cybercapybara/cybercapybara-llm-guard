@@ -440,33 +440,33 @@ TEST(GuardMasker, ScanTextsSerialStopsAtFirstFailure) {
     EXPECT_TRUE(results[2].matches.empty());
 }
 
-TEST(GuardMasker, ScanTextsParallelPropagatesErrorFromBrokenRuleSlice) {
-    // The parallel branch partitions RULES across workers (see Masker.hpp's
-    // file-level doc comment) -- this pins that a broken rule sharing a
-    // worker's slice with otherwise-working rules still surfaces as an
-    // error for every text that worker was asked to scan, and that the
-    // cross-worker merge in scan_texts correctly treats those texts as
-    // failed (discarding any OTHER worker's valid matches for them) rather
-    // than silently losing the failure.
+TEST(GuardMasker, ScanTextsParallelPropagatesLowestIndexErrorAcrossChunks) {
+    // Once fan-out is chosen, every chunk scans its OWN texts against the
+    // FULL, shared rule set (Go parity -- see Masker.hpp's file-level doc
+    // comment), so a broken rule fails EVERY chunk's EVERY text
+    // concurrently. This pins that, even so, the lowest FAILING TEXT INDEX
+    // still wins deterministically -- not whichever chunk happens to finish
+    // (or throw) first.
     if (std::thread::hardware_concurrency() <= 1)
-        GTEST_SKIP() << "single-core runner: cannot observe rule-partitioned fan-out";
+        GTEST_SKIP() << "single-core runner: cannot observe chunked fan-out";
 
-    std::vector<Guard::Rule> defs;
-    for (int i = 0; i < 10; ++i)
-        defs.push_back(make_rule("ok" + std::to_string(i), "NEEDLE" + std::to_string(i), "P"));
-    auto fx = build_rules(defs);
-
+    auto fx = build_rules({make_rule("ok.rule", "aaa", "A")});
     Guard::CompiledRule broken;
     broken.rule = make_rule("boom", "unused", "X");
     std::vector<const Guard::CompiledRule*> rules = fx.rules;
-    rules.push_back(&broken);  // last index -> lands in some worker's slice
+    rules.push_back(&broken);
 
-    std::vector<std::string> texts{"NEEDLE0 text", "NEEDLE1 text"};
+    std::vector<std::string> texts{"t0", "t1", "t2", "t3"};
     MaskOptions opts;
-    opts.parallel_min_bytes = 1;  // force the parallel path
+    opts.parallel_min_bytes = 1;  // force the parallel/chunked path
     ASSERT_GT(Guard::detail::text_scan_worker_count(texts, opts), 1u);
 
-    EXPECT_THROW(Guard::mask_texts(texts, rules, opts), std::runtime_error);
+    try {
+        Guard::mask_texts(texts, rules, opts);
+        FAIL() << "expected mask_texts to throw";
+    } catch (const std::runtime_error& e) {
+        EXPECT_NE(std::string(e.what()).find("text[0]"), std::string::npos) << e.what();
+    }
 }
 
 // ── Text-level fan-out gate ────────────────────────────────────────────────
@@ -503,16 +503,15 @@ TEST(GuardMasker, ZeroParallelMinBytesFallsBackToDefault) {
 }
 
 TEST(GuardMasker, ScanTextsParallelChunksCoverEveryTextWithoutGapsOrOverlap) {
-    // scan_texts's parallel branch partitions RULES (not texts) across
-    // workers -- see Masker.hpp's file-level doc comment's "Why fan-out
-    // partitions RULES, not texts" section -- so each of these 37 texts'
-    // ONE genuine match lives in whichever worker's rule slice happens to
-    // hold the matching rule; every OTHER worker contributes zero matches
-    // for that text. This pins the cross-worker merge itself: every text
-    // must end up with exactly its one correct match, with nothing lost or
-    // duplicated regardless of which worker found it.
+    // Bounds in-flight std::async tasks to text_scan_worker_count() by
+    // chunking texts into contiguous ranges rather than one task per text
+    // (a request with many more texts than workers used to spawn one OS
+    // thread per text -- see the file-level doc comment in Masker.hpp).
+    // With more texts than any plausible worker count, this pins the
+    // chunk-index arithmetic itself: every text must be scanned exactly
+    // once, by whichever chunk owns its index, with no gaps or double work.
     if (std::thread::hardware_concurrency() <= 1)
-        GTEST_SKIP() << "single-core runner: cannot observe rule-partitioned fan-out";
+        GTEST_SKIP() << "single-core runner: cannot observe chunked fan-out";
 
     constexpr int kTextCount = 37;  // deliberately not a multiple of any small worker count
     std::vector<Guard::Rule> defs;

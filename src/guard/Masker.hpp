@@ -40,52 +40,50 @@
  *          in-flight scan to finish first (mirrors Go's `wg.Wait()` -- it
  *          cannot cheaply cancel in-flight work either), then reports the
  *          lowest-index failure regardless of which one finished first. This
- *          port launches up to `text_scan_worker_count(texts, opts)`
- *          `std::async` tasks once fan-out is chosen -- bounding in-flight
- *          OS threads to the same worker count Go's semaphore bounds
- *          concurrent goroutines to (`scanWorkers`'s return value there only
- *          bounds concurrent in-flight goroutines via a buffered channel,
- *          handle.go:147-168), rather than one thread per text. The OUTPUT
- *          this port is contracted to match only depends on that bound, not
- *          on how it's enforced (results are still collected in index
- *          order, all-or-nothing, lowest-index-error-wins).
- *
- *          **Why fan-out partitions RULES, not texts** (read this before
- *          changing the partitioning scheme back): an EARLIER version of
- *          this function partitioned `texts` into contiguous ranges, one
- *          task per range, each scanning its own texts against the FULL,
- *          SHARED `rules` -- simple, and correct in isolation, but CI's
- *          `tsan` job caught a genuine data race inside
- *          `re2::DFA::CachedState` whenever two worker threads concurrently
- *          discovered a new (previously-uncached) DFA state for the SAME
- *          RE2 object. Scanner.hpp's OWN internal fan-out
- *          (`detail::scan_parallel`) never hits this: it partitions RULES
- *          across its workers, so no single rule's compiled RE2 is EVER
- *          touched by more than one of its threads. `detail::scan_texts`'s
- *          parallel branch mirrors that exact partitioning instead: each
- *          worker owns a disjoint, contiguous slice of `rules` and scans
- *          it against EVERY text (via `Scanner.hpp`'s own `scan_serial`),
- *          accumulating raw, uncoalesced candidates into its own PRIVATE
- *          per-text storage -- no synchronization needed during the
- *          parallel phase, since two workers never write the same memory.
- *          Once every worker finishes, each text's final match list is
- *          assembled on the (single) calling thread by concatenating that
- *          text's candidates from every worker and running them through
- *          `Scanner.hpp`'s own `resolve_conflicts` -- reproducing exactly
- *          what one serial `scan_rules` call against the full rule set
- *          would have produced for that text. A cheaper-sounding
- *          alternative -- warming up every rule's DFA once, serially,
- *          before spawning workers -- was tried first and did NOT fully
- *          close the race: a trivial warm-up probe only pre-populates the
- *          DFA states IT visits, and real, varied text content still
- *          drives concurrent discovery of new states during actual
- *          scanning. Partitioning by rule sidesteps the question of
- *          exactly which RE2 code paths are and aren't safe under
- *          concurrent use on a single object entirely, by never exercising
- *          concurrent use of a single RE2 object in the first place -- at
- *          zero extra regex-compile cost (unlike per-worker rule cloning,
- *          the other candidate fix considered, which would re-compile the
- *          entire rule set once per worker on every parallel request).
+ *          port launches exactly `text_scan_worker_count(texts, opts)`
+ *          `std::async` tasks once fan-out is chosen -- NOT one task per
+ *          text -- each covering its own contiguous, non-overlapping index
+ *          range of `texts` and scanning that range serially into its own
+ *          slice of `results` (disjoint element writes to a pre-sized
+ *          `std::vector` are data-race-free even without synchronization).
+ *          This bounds in-flight OS threads to the same worker count Go's
+ *          semaphore bounds concurrent goroutines to (`scanWorkers`'s return
+ *          value there only bounds concurrent in-flight goroutines via a
+ *          buffered channel, handle.go:147-168) -- a request with thousands
+ *          of texts no longer spawns one thread per text (nor, since each
+ *          per-text scan can itself fan out inside `scan_rules`, thousands
+ *          of NESTED thread pools). Chunking rather than a literal semaphore
+ *          is a deliberate simplification of Go's exact mechanism: the
+ *          OUTPUT this port is contracted to match only depends on the
+ *          bound on concurrency, not on how it's enforced (results are still
+ *          collected in index order, all-or-nothing, lowest-index-error-wins);
+ *          a chunk that hits a scan failure partway through still finishes
+ *          scanning the REST of its own range (mirrors this port's prior,
+ *          and Go's, "the parallel path cannot cheaply cancel in-flight
+ *          work either" stance -- only the fully-SEQUENTIAL branch above
+ *          stops early, since there nothing is "in flight" to let finish).
+ *          Each worker's chunk scans its whole texts against the FULL,
+ *          SHARED `rules` (unchanged `scan_rules` per text -- Go parity:
+ *          `handle.go`'s `scanTexts` also runs one full scan per text,
+ *          goroutine-per-text), so multiple worker threads DO call `RE2::
+ *          Match` concurrently on the same compiled rule set. An earlier
+ *          revision of this file avoided that on purpose (partitioning
+ *          `rules` across workers instead) after CI's `tsan` job reported a
+ *          data race inside `re2::DFA::CachedState` -- root-caused not to
+ *          this port's own concurrency, but to CI's `tsan` job at the time
+ *          linking non-instrumented, prebuilt vcpkg RE2/Abseil into an
+ *          otherwise-`-fsanitize=thread`-instrumented test binary (a TSan
+ *          false-positive: it cannot see synchronization happening inside
+ *          code it never instrumented). That gap is fixed at the CI-infra
+ *          level (`docker/Dockerfile`'s `tsan-builder` stage now links a
+ *          separately-built, TSan-instrumented RE2/Abseil tree via
+ *          `triplets/x64-linux-tsan.cmake` -- see this repo's `CLAUDE.md`,
+ *          "Don't point the `tsan` job back at `build/vcpkg_installed`"),
+ *          confirmed sound by `test_guard_scanner_concurrency.cpp`'s direct
+ *          concurrent-`Match`-on-shared-`CompiledRule` test. With that fix
+ *          in place, concurrent `RE2::Match` on a shared, already-compiled
+ *          rule set is exactly what RE2 documents itself as safe for, and
+ *          this file reverts to the simpler, Go-parity TEXT partitioning.
  *
  *          **Phase B -- mask** (`detail::MaskerState` ports `masker`,
  *          masker.go, in full): runs SEQUENTIALLY in text order through one
@@ -418,27 +416,22 @@ inline std::size_t text_scan_worker_count(const std::vector<std::string>& texts,
 
 // Ports `scanTexts` (handle.go:126-170): scans every text against `rules`,
 // sequentially (stopping at the first failing index -- "no point scanning
-// the remaining texts") when fan-out doesn't apply. When it does apply --
-// see the file-level doc comment's "Why fan-out partitions RULES, not
-// texts" section for why this partitions `rules`, not `texts` -- each of up
-// to `text_scan_worker_count` worker tasks owns a disjoint, contiguous
-// slice of `rules` and scans it (via `scan_serial`) against EVERY text,
-// writing only into its own private per-text storage (`per_worker[w]`); no
-// synchronization is needed during the parallel phase since two workers
-// never touch the same memory OR the same RE2 object. Once every worker
-// finishes, each text's final result is assembled by concatenating that
-// text's candidates from every worker and running them through
-// `resolve_conflicts` -- reproducing exactly what one serial `scan_rules`
-// call against the full rule set would have produced for that text, and
-// recording an error for that text if any worker's slice failed on it.
+// the remaining texts") when fan-out doesn't apply. When it does apply,
+// bounds in-flight `std::async` tasks to exactly `text_scan_worker_count`
+// (NOT one task per text -- see the file-level doc comment) by chunking
+// `texts` into that many contiguous, non-overlapping index ranges, each
+// scanned serially by its own task directly into its own slice of `results`
+// (disjoint-index writes to a pre-sized vector need no synchronization) --
+// the parallel branch always waits for every chunk task before returning,
+// mirroring Go's `wg.Wait()`. Each task scans its own texts against the
+// FULL, shared `rules` via the unchanged, single-text `scan_rules` -- see
+// the file-level doc comment for why concurrent `RE2::Match` on that shared,
+// already-compiled rule set is safe (and CI-verifiable) here.
 inline std::vector<TextScanResult> scan_texts(const std::vector<std::string>& texts,
                                               const std::vector<const CompiledRule*>& rules,
                                               const MaskOptions& opts) {
     std::vector<TextScanResult> results(texts.size());
-
-    // Never more workers than rules -- a worker with an empty slice would
-    // do no useful work and just adds thread-creation overhead.
-    const std::size_t workers = std::min(text_scan_worker_count(texts, opts), rules.size());
+    const std::size_t workers = text_scan_worker_count(texts, opts);
 
     if (workers <= 1) {
         for (std::size_t i = 0; i < texts.size(); ++i) {
@@ -452,13 +445,8 @@ inline std::vector<TextScanResult> scan_texts(const std::vector<std::string>& te
         return results;
     }
 
-    const std::size_t n = rules.size();
+    const std::size_t n = texts.size();
     const std::size_t chunk_size = (n + workers - 1) / workers;  // ceil(n / workers)
-
-    // per_worker[w] is populated ONLY by worker w's own task, and read back
-    // (merged) only after every future has been joined below -- so this
-    // needs no locking despite being shared across the async lambdas.
-    std::vector<std::vector<TextScanResult>> per_worker(workers);
 
     std::vector<std::future<void>> futures;
     futures.reserve(workers);
@@ -466,39 +454,19 @@ inline std::vector<TextScanResult> scan_texts(const std::vector<std::string>& te
         const std::size_t begin = w * chunk_size;
         const std::size_t end = std::min(n, begin + chunk_size);
         if (begin >= end)
-            break;  // defensive: unreachable given the `workers <= rules.size()` cap above
-        std::vector<const CompiledRule*> rule_slice(rules.begin() + static_cast<std::ptrdiff_t>(begin),
-                                                    rules.begin() + static_cast<std::ptrdiff_t>(end));
-        per_worker[w].resize(texts.size());
-        futures.push_back(
-            std::async(std::launch::async, [&texts, rule_slice = std::move(rule_slice), &local = per_worker[w]]() {
-                for (std::size_t i = 0; i < texts.size(); ++i) {
-                    try {
-                        local[i].matches = scan_serial(texts[i], rule_slice);
-                    } catch (...) {
-                        local[i].error = std::current_exception();
-                    }
+            break;  // fewer texts than workers: later workers get an empty range
+        futures.push_back(std::async(std::launch::async, [&texts, &rules, &opts, &results, begin, end]() {
+            for (std::size_t i = begin; i < end; ++i) {
+                try {
+                    results[i].matches = scan_rules(texts[i], rules, opts.scan);
+                } catch (...) {
+                    results[i].error = std::current_exception();
                 }
-            }));
+            }
+        }));
     }
     for (auto& f : futures)
         f.get();
-
-    for (std::size_t i = 0; i < texts.size(); ++i) {
-        std::exception_ptr first_error;
-        std::vector<ScanMatch> combined;
-        for (const auto& local : per_worker) {
-            if (local.empty())
-                continue;  // this worker's slice was empty; it never ran
-            if (local[i].error && !first_error)
-                first_error = local[i].error;
-            combined.insert(combined.end(), local[i].matches.begin(), local[i].matches.end());
-        }
-        if (first_error)
-            results[i].error = first_error;
-        else
-            results[i].matches = resolve_conflicts(std::move(combined));
-    }
     return results;
 }
 
