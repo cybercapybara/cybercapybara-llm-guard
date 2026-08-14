@@ -280,6 +280,61 @@ struct WalkFrame {
     WalkState state;
 };
 
+#if defined(__GNUC__) || defined(__clang__)
+#define GUARD_JSON_NOINLINE __attribute__((noinline))
+#else
+#define GUARD_JSON_NOINLINE
+#endif
+
+// Reads a scalar value or opens a container at `p`. A scalar returns its
+// own end offset directly; an opener pushes a frame onto `frames`
+// (invalidating any previously-held `WalkFrame&`/index taken before this
+// call) and returns the offset just past the bracket.
+//
+// Deliberately a separate, explicitly NOT-inlined function (not a lambda
+// nested in `skip_value`, which is how this was first written): GCC 13 at
+// -O3 has a known false positive (`-Werror=stringop-overflow` on
+// `vector<WalkFrame>::_M_realloc_insert`'s reallocation, reported as
+// "writing 1 byte into a region of size 0" with a nonsensical negative
+// offset) that reliably reproduces when this function's two `push_back`
+// call sites get inlined into `skip_value` at several of its own call
+// sites simultaneously -- confirmed by testing `frames.reserve()` first
+// (no effect: the false positive isn't about the first allocation) and
+// only going away once inlining itself was prevented. `noinline` keeps
+// every `push_back` here behind one real, non-inlined call, which
+// structurally cannot produce the multi-"inlined from" chain the bug
+// needs -- a code-shape change to dodge a compiler bug, not a suppression
+// of the warning class (which stays fully enabled and gating everywhere
+// else).
+GUARD_JSON_NOINLINE inline std::optional<std::size_t> open_or_scalar(std::string_view doc,
+                                                                     std::size_t p,
+                                                                     std::vector<WalkFrame>& frames) {
+    if (p >= doc.size())
+        return std::nullopt;
+    const char c = doc[p];
+    if (c == '"')
+        return skip_string(doc, p);
+    if (c == '-' || is_digit(c))
+        return skip_number(doc, p);
+    if (c == 't')
+        return match_literal(doc, p, "true") ? std::optional<std::size_t>(p + 4) : std::nullopt;
+    if (c == 'f')
+        return match_literal(doc, p, "false") ? std::optional<std::size_t>(p + 5) : std::nullopt;
+    if (c == 'n')
+        return match_literal(doc, p, "null") ? std::optional<std::size_t>(p + 4) : std::nullopt;
+    if (c == '{') {
+        frames.push_back(WalkFrame{'{', WalkState::ObjectStart});
+        return p + 1;
+    }
+    if (c == '[') {
+        frames.push_back(WalkFrame{'[', WalkState::ArrayStart});
+        return p + 1;
+    }
+    return std::nullopt;
+}
+
+#undef GUARD_JSON_NOINLINE
+
 // Skips exactly one JSON value starting at (or after, via an internal
 // skip_ws) `pos`, however deeply nested, and returns the offset just past
 // it -- or nullopt for any malformed input. Nesting is walked with an
@@ -294,45 +349,6 @@ inline std::optional<std::size_t> skip_value(std::string_view doc, std::size_t p
         return std::nullopt;
 
     std::vector<WalkFrame> frames;
-    // Pre-reserved so the common case (shallow JSON) never reallocates, and
-    // -- load-bearing, not just an optimization -- so the vector's FIRST
-    // ever growth isn't from an empty (data()==nullptr, capacity==0) state:
-    // GCC 13 at -O3 has a known false positive (`-Wstringop-overflow` on
-    // `vector::_M_realloc_insert`'s very first reallocation, reported as
-    // "writing 1 byte into a region of size 0" with a nonsensical negative
-    // offset) triggered here by this lambda's `push_back` being inlined at
-    // several call sites within `skip_value`. Reserving up front sidesteps
-    // that specific GCC codegen path entirely for realistic documents.
-    frames.reserve(16);
-
-    // Reads a scalar value or opens a container at `p`. A scalar returns
-    // its own end offset directly; an opener pushes a frame (invalidating
-    // any previously-held `WalkFrame&`/index into `frames` taken before
-    // this call) and returns the offset just past the bracket.
-    auto open_or_scalar = [&](std::size_t p) -> std::optional<std::size_t> {
-        if (p >= doc.size())
-            return std::nullopt;
-        const char c = doc[p];
-        if (c == '"')
-            return skip_string(doc, p);
-        if (c == '-' || is_digit(c))
-            return skip_number(doc, p);
-        if (c == 't')
-            return match_literal(doc, p, "true") ? std::optional<std::size_t>(p + 4) : std::nullopt;
-        if (c == 'f')
-            return match_literal(doc, p, "false") ? std::optional<std::size_t>(p + 5) : std::nullopt;
-        if (c == 'n')
-            return match_literal(doc, p, "null") ? std::optional<std::size_t>(p + 4) : std::nullopt;
-        if (c == '{') {
-            frames.push_back(WalkFrame{'{', WalkState::ObjectStart});
-            return p + 1;
-        }
-        if (c == '[') {
-            frames.push_back(WalkFrame{'[', WalkState::ArrayStart});
-            return p + 1;
-        }
-        return std::nullopt;
-    };
 
     // A container frame just closed (already popped): tell the newly-
     // exposed parent frame, if any, that one of ITS values just completed.
@@ -343,7 +359,7 @@ inline std::optional<std::size_t> skip_value(std::string_view doc, std::size_t p
     };
 
     {
-        const auto r = open_or_scalar(pos);
+        const auto r = open_or_scalar(doc, pos, frames);
         if (!r)
             return std::nullopt;
         pos = *r;
@@ -370,7 +386,7 @@ inline std::optional<std::size_t> skip_value(std::string_view doc, std::size_t p
                 }
                 [[fallthrough]];
             case WalkState::ArrayAfterComma: {
-                const auto r = open_or_scalar(pos);
+                const auto r = open_or_scalar(doc, pos, frames);
                 if (!r)
                     return std::nullopt;
                 pos = *r;
@@ -421,7 +437,7 @@ inline std::optional<std::size_t> skip_value(std::string_view doc, std::size_t p
                 break;
             }
             case WalkState::ObjectAfterColon: {
-                const auto r = open_or_scalar(pos);
+                const auto r = open_or_scalar(doc, pos, frames);
                 if (!r)
                     return std::nullopt;
                 pos = *r;
