@@ -242,43 +242,56 @@ jobs:
     # ThreadSanitizer over the unit-test bucket. The codebase leans on inline
     # singletons + atomics (ADR 0004) — exactly where races hide. Kept apart
     # from the ASan job: TSan can't share a process with ASan.
-    timeout-minutes: 60
+    #
+    # Unlike the ASan job this one does NOT reuse the builder stage's
+    # dependency tree: TSan is only sound against libraries that were
+    # themselves compiled with -fsanitize=thread (Abseil/RE2 synchronise via
+    # raw atomics that TSan's pthread interceptors cannot see, which shows up
+    # as phantom races in absl::synchronization_internal under concurrent
+    # RE2::Match). The `tsan-builder` Dockerfile target therefore builds
+    # against its own instrumented vcpkg tree — see docker/Dockerfile stage 2c.
+    #
+    # Timeout: 60 → 120. Installing the instrumented dependency tree is a
+    # one-time ~30-45 min cost per vcpkg.json / triplet change; every run after
+    # that restores the layer from the gha (or GHCR) cache and the job is back
+    # to compile+run only. A cold run must not flake the gate.
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f  # v3.12.0
 
-      - name: Build builder image
+      - name: Build TSan image (instrumented deps + unit tests)
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25  # v5.4.0
         with:
           context: .
           file: docker/Dockerfile
-          target: builder
+          target: tsan-builder
           push: false
           load: true
-          tags: llm-guard-template:builder
-          build-args: ENABLE_WERROR=ON
+          tags: llm-guard-template:tsan
+          # Reads the shared caches for the toolchain/apt/vcpkg-bootstrap
+          # layers it has in common with `builder`, plus its own `tsan` scope
+          # for the instrumented dependency layer. Writes ONLY to the tsan
+          # scope so this job can never evict or clobber the builder cache the
+          # other four Docker jobs depend on.
           cache-from: |
             type=gha
+            type=gha,scope=tsan
             type=registry,ref=ghcr.io/${{ github.repository }}/builder:cache
-          cache-to: type=gha,mode=max
+            type=registry,ref=ghcr.io/${{ github.repository }}/tsan-deps:cache
+          # ignore-error: a multi-GB export hitting the 10 GB Actions cache
+          # ceiling (or a flaky upload) must not fail a green sanitizer run.
+          cache-to: type=gha,scope=tsan,mode=max,ignore-error=true
 
-      - name: Build & run unit tests with TSan
+      - name: Run unit tests with TSan
         run: |
           docker run --rm \
               --entrypoint /bin/bash \
-              llm-guard-template:builder -c "
+              llm-guard-template:tsan -c "
                   set -e
                   cd /app
-                  rm -rf build-tsan
-                  cmake -B build-tsan \
-                      -G Ninja \
-                      -DCMAKE_BUILD_TYPE=Debug \
-                      -DENABLE_TSAN=ON \
-                      -DCMAKE_TOOLCHAIN_FILE=/opt/vcpkg/scripts/buildsystems/vcpkg.cmake \
-                      -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed
-                  cmake --build build-tsan -j\$(nproc) --target llm_guard_tests_unit
                   TSAN_OPTIONS=halt_on_error=1:second_deadlock_stack=1 \
                   ./build-tsan/llm_guard_tests_unit \
                       --gtest_color=yes
