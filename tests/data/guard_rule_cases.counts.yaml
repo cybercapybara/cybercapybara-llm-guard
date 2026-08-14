@@ -1,0 +1,803 @@
+# Per-rule case counts for tests/data/guard_rule_cases.yaml, generated
+# alongside it. Checked by test_guard_rule_corpus.cpp's
+# CaseCountsMatchGoReference test: catches a future edit that moves a case
+# between rules (grand totals alone wouldn't).
+rule_counts:
+  access_tokens.1password-secret-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.1password-service-account-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.age-secret-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.airtable-personnal-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.alibaba-access-key-id.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.alibaba-secret-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.artifactory-reference-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.authress-service-client-access-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.aws-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.bittrex-access-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.bittrex-secret-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.cloudflare-origin-ca-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.codecov-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.coinbase-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.confluent-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.confluent-secret-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.datadog-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.digitalocean-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.digitalocean-pat.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.droneci-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.etsy-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.facebook-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.facebook-page-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.finnhub-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.flickr-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.flutterwave-encryption-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.flutterwave-public-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.flutterwave-secret-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.freemius-secret-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.freshbooks-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.github-app-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.github-fine-grained-pat.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.github-pat.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-cicd-job-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-deploy-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-feature-flag-client-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-feed-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-incoming-mail-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-kubernetes-agent-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-pat-routable.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-pat.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-ptt.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-rrt.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-runner-authentication-token-routable.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-runner-authentication-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitlab-scim-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.gitter-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.grafana-service-account-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.huggingface-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.jfrog-identity-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.kraken-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.kucoin-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.kucoin-secret-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.launchdarkly-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.mailgun-pub-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.mailgun-signing-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.mattermost-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.maxmind-license-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.microsoft-teams-webhook.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.netlify-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.new-relic-insert-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.npm-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.npm-token:
+    positives: 1
+    negatives: 0
+  access_tokens.nytimes-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.okta-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.openshift-user-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.plaid-secret-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.private-key-pem:
+    positives: 1
+    negatives: 0
+  access_tokens.private-key.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.pypi-upload-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.rapidapi-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.sendbird-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.sentry-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.sentry-org-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.sentry-user-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.settlemint-application-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.settlemint-personal-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.settlemint-service-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.shopify-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.shopify-custom-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.shopify-private-app-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.slack-app-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.slack-bot-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.slack-config-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.slack-legacy-bot-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.slack-legacy-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.slack-legacy-workspace-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.slack-user-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.slack-webhook-url.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.sourcegraph-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.square-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.squarespace-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.stripe-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.sumologic-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.travisci-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.twilio-auth-token:
+    positives: 1
+    negatives: 0
+  access_tokens.twitter-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.vault-batch-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.vault-service-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.vault-token:
+    positives: 1
+    negatives: 0
+  access_tokens.yandex-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.yandex-aws-access-token.gl:
+    positives: 1
+    negatives: 0
+  access_tokens.zendesk-secret-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.adafruit-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.airtable-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.algolia-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.anthropic-admin-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.anthropic-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.artifactory-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.aws-amazon-bedrock-api-key-long-lived.gl:
+    positives: 1
+    negatives: 0
+  api_keys.aws-amazon-bedrock-api-key-short-lived.gl:
+    positives: 1
+    negatives: 0
+  api_keys.beamer-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.cisco-meraki-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.clickhouse-cloud-api-secret-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.clojars-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.cloudflare-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.cloudflare-global-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.cohere-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.contentful-delivery-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.databricks-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.defined-networking-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.discord-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.doppler-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.dropbox-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.dropbox-long-lived-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.dropbox-short-lived-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.duffel-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.dynatrace-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.easypost-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.easypost-test-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.fastly-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.finicity-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.flyio-access-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.frameio-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.gcp-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.gocardless-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.grafana-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.grafana-cloud-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.harness-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.hashicorp-tf-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.heroku-api-key-v2.gl:
+    positives: 1
+    negatives: 0
+  api_keys.heroku-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.hubspot-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.huggingface-organization-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.infracost-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.intercom-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.jfrog-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.linear-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.lob-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.lob-pub-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.mailchimp-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.mailgun-private-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.mapbox-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.messagebird-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.new-relic-browser-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.new-relic-user-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.notion-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.octopus-deploy-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.openai-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.perplexity-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.plaid-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.planetscale-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.postman-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.prefect-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.privateai-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.pulumi-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.readme-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.rubygems-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.scalingo-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.sendgrid-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.sendinblue-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.shippo-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.snyk-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.sonar-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.stripe-key:
+    positives: 1
+    negatives: 0
+  api_keys.stripe-restricted:
+    positives: 1
+    negatives: 0
+  api_keys.telegram-bot-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.twilio-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.twitch-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.twitter-api-key.gl:
+    positives: 1
+    negatives: 0
+  api_keys.twitter-bearer-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.typeform-api-token.gl:
+    positives: 1
+    negatives: 0
+  api_keys.yandex-api-key.gl:
+    positives: 1
+    negatives: 0
+  credentials.adobe-client-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.adobe-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.amqp_connection:
+    positives: 1
+    negatives: 0
+  credentials.api_key_header:
+    positives: 1
+    negatives: 0
+  credentials.url_encoded_bearer_token:
+    positives: 1
+    negatives: 0
+  credentials.nested_json_api_key:
+    positives: 1
+    negatives: 0
+  credentials.asana-client-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.asana-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.azure-ad-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.bitbucket-client-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.bitbucket-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.db_connection:
+    positives: 1
+    negatives: 0
+  credentials.digitalocean-refresh-token.gl:
+    positives: 1
+    negatives: 0
+  credentials.discord-client-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.discord-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.facebook-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.finicity-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.github-oauth.gl:
+    positives: 1
+    negatives: 0
+  credentials.github-refresh-token.gl:
+    positives: 1
+    negatives: 0
+  credentials.gitlab-oauth-app-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.gitlab-session-cookie.gl:
+    positives: 1
+    negatives: 0
+  credentials.hashicorp-tf-password.gl:
+    positives: 1
+    negatives: 0
+  credentials.http_auth_basic:
+    positives: 1
+    negatives: 0
+  credentials.http_auth_bearer:
+    positives: 1
+    negatives: 0
+  credentials.intra42-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.jwt-base64.gl:
+    positives: 1
+    negatives: 0
+  credentials.jwt.gl:
+    positives: 1
+    negatives: 0
+  credentials.linear-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.linkedin-client-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.linkedin-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.looker-client-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.looker-client-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.messagebird-client-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.nats_connection:
+    positives: 1
+    negatives: 0
+  credentials.new-relic-user-api-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.nuget-config-password.gl:
+    positives: 1
+    negatives: 0
+  credentials.oauth_body_secret:
+    positives: 1
+    negatives: 0
+  credentials.oauth_query_secret:
+    positives: 1
+    negatives: 0
+  credentials.password:
+    positives: 1
+    negatives: 0
+  credentials.plaid-client-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.planetscale-oauth-token.gl:
+    positives: 1
+    negatives: 0
+  credentials.planetscale-password.gl:
+    positives: 1
+    negatives: 0
+  credentials.redis_connection:
+    positives: 1
+    negatives: 0
+  credentials.sendbird-access-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.shopify-shared-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.sidekiq-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.sidekiq-sensitive-url.gl:
+    positives: 1
+    negatives: 0
+  credentials.slack-config-refresh-token.gl:
+    positives: 1
+    negatives: 0
+  credentials.sumologic-access-id.gl:
+    positives: 1
+    negatives: 0
+  credentials.twitter-access-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.twitter-api-secret.gl:
+    positives: 1
+    negatives: 0
+  credentials.url_with_creds:
+    positives: 1
+    negatives: 0
+  ip-addrs.ipv4:
+    positives: 1
+    negatives: 0
+  ip-addrs.ipv4-cidr:
+    positives: 1
+    negatives: 0
+  ip-addrs.ipv4-private:
+    positives: 1
+    negatives: 0
+  ip-addrs.ipv4-public:
+    positives: 1
+    negatives: 0
+  ip-addrs.ipv6:
+    positives: 1
+    negatives: 0
+  ip-addrs.ipv6-cidr:
+    positives: 1
+    negatives: 0
+  ip-addrs.ipv6-private:
+    positives: 1
+    negatives: 0
+  ip-addrs.ipv6-public:
+    positives: 1
+    negatives: 0
+  pii.docs.inn-org:
+    positives: 1
+    negatives: 0
+  pii.docs.inn-person:
+    positives: 1
+    negatives: 0
+  pii.docs.ogrn:
+    positives: 1
+    negatives: 0
+  pii.docs.ogrnip:
+    positives: 1
+    negatives: 0
+  pii.docs.snils:
+    positives: 7
+    negatives: 1
+  pii.docs.passport:
+    positives: 10
+    negatives: 3
+  pii.email:
+    positives: 1
+    negatives: 0
+  pii.fin.credit-card:
+    positives: 1
+    negatives: 0
+  pii.fin.credit-card.context:
+    positives: 3
+    negatives: 4
+  pii.fin.iban:
+    positives: 1
+    negatives: 0
+  pii.phone-ru:
+    positives: 6
+    negatives: 2
+  pii.fio-ru:
+    positives: 14
+    negatives: 5
+  pii.fio-ru.initials:
+    positives: 8
+    negatives: 3
+  pii.fio-ru.short:
+    positives: 12
+    negatives: 5
+  pii.docs.kpp:
+    positives: 3
+    negatives: 1
+  pii.docs.address:
+    positives: 9
+    negatives: 6
+  pii.fin.cvc:
+    positives: 4
+    negatives: 2
+  access_tokens.generic-token:
+    positives: 4
+    negatives: 0
+  access_tokens.generic-long-token:
+    positives: 2
+    negatives: 2
+  credentials.curl-auth-header.gl:
+    positives: 8
+    negatives: 0
+  credentials.curl-auth-user.gl:
+    positives: 3
+    negatives: 0
+  credentials.kubernetes-secret-yaml.gl:
+    positives: 2
+    negatives: 0
+  api_keys.atlassian-api-token.gl:
+    positives: 2
+    negatives: 0

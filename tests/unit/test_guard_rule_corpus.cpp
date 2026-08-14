@@ -36,29 +36,58 @@
  *          retyped by hand. See task-1.9-report.md for the full derivation
  *          and the case-count reconciliation against the Go file.
  *
- *          Every `text`/`expect_span`/negative string is stored reversed-
- *          then-base64url-encoded (`*_b64` keys, decoded below via
- *          `decode_field`: reverse, then `Utils::Base64::url_decode`) rather
- *          than as plaintext. Many of the ported gitleaks-catalog fixtures
- *          are, by construction, synthetic strings shaped exactly like real
- *          provider secrets (that is the whole point of a secret-detection
- *          corpus) -- committing them as plaintext literals tripped GitHub's
- *          server-side secret-scanning push protection on the first push.
- *          Plain (non-reversed) base64url still tripped a handful of
- *          provider patterns on a second push -- GitHub's scanner appears to
- *          opportunistically base64-decode "looks-like-base64" substrings and
- *          re-match provider regexes against the decoded bytes, which a
- *          straight base64 dump of the corpus satisfies for any fixture that
- *          also happens to resemble a *different* provider's format. The
- *          reversal breaks base64's 4-char/3-byte group alignment, so
- *          decoding the on-disk bytes directly (without first reversing, the
- *          way this loader does) does not reproduce the original plaintext.
- *          Byte-for-byte fidelity against the Go source was round-trip
- *          verified at generation time regardless of the encoding.
+ *          A single-rule scan makes `matches[0].rule->rule.masking.
+ *          placeholder`/`.data_type` checks tautological (the one active
+ *          rule IS `registry_->by_id(entry.rule_id)` by construction, so its
+ *          placeholder/data_type trivially equal themselves) -- not omitted
+ *          because `Guard::ScanMatch` lacks the fields; `ScanMatch::rule` is
+ *          a `const CompiledRule*` that exposes both. This is why neither is
+ *          separately asserted here, unlike the Go reference's
+ *          `TestRealConfigRuleCases_ScanSemanticSpan` (which scans a
+ *          registry of ALL rules, where a wrong-rule match is a real
+ *          possibility that Placeholder/DataType equality would catch).
+ *
+ *          Mixed plaintext/base64 fixture encoding: every `text`/
+ *          `expect_span`/negative string is either plaintext (`text`,
+ *          `expect_span`, `negatives`) or reversed-then-base64url-encoded
+ *          (`text_b64`, `expect_span_b64`, `negatives_b64`, decoded below via
+ *          `decode_field`), chosen PER RULE by catalog origin -- never mixed
+ *          within one rule. The 46 hand-written rules (configs/rules.yaml,
+ *          e.g. the Cyrillic PII rules: FIO, passport, SNILS, card, IBAN)
+ *          stay plaintext, since none of their fixtures resemble a known
+ *          secret format; keeping them readable preserves diff auditability
+ *          for the corpus most likely to be hand-edited during rule tuning.
+ *          The 220 gitleaks-derived rules (configs/rules.gitleaks.
+ *          generated.yaml) are encoded: their fixtures are, by design,
+ *          synthetic strings shaped exactly like real provider secrets,
+ *          which tripped GitHub's server-side secret-scanning push
+ *          protection when committed as plaintext -- and, on a first
+ *          mitigation attempt, even as PLAIN (non-reversed) base64url
+ *          (GitHub's scanner appears to opportunistically base64-decode
+ *          "looks-like-base64" substrings and re-match provider regexes
+ *          against the decoded bytes). Reversing the base64 string breaks
+ *          its 4-char/3-byte group alignment, so decoding the on-disk bytes
+ *          directly (without first reversing, the way this loader and
+ *          `scripts/corpus-codec.py` do) does not reproduce the original
+ *          plaintext. Byte-for-byte fidelity against the Go source was
+ *          round-trip verified at generation time for both encodings.
+ *          `scripts/corpus-codec.py decode` prints the whole corpus with
+ *          every encoded field replaced by its plaintext, for human review.
+ *
+ *          Schema validation: every case must use EXACTLY ONE of the
+ *          plain/`_b64` key pair for `text` and (for positives) for
+ *          `expect_span`; every positive case must carry an `expect_span`
+ *          (Go pins an exact span on every positive -- there is no "at least
+ *          one match" case in the Go corpus, so an absent `expect_span`
+ *          would silently weaken the port). Violations are collected while
+ *          loading and reported as ordinary test failures by
+ *          `CorpusSchemaIsWellFormed` naming the offending rule, rather than
+ *          aborting the whole suite.
  */
 
 #include <algorithm>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <stdexcept>
 #include <string>
@@ -88,6 +117,16 @@ struct RuleCorpusEntry {
     std::vector<std::string> negatives;
 };
 
+struct RuleCounts {
+    std::size_t positives = 0;
+    std::size_t negatives = 0;
+};
+
+struct LoadedCorpus {
+    std::vector<RuleCorpusEntry> entries;
+    std::vector<std::string> schema_issues;  // reported by CorpusSchemaIsWellFormed
+};
+
 // The two real catalogs shipped in configs/, loaded together -- same pair
 // tests/unit/test_guard_rules_yaml.cpp's real_catalog_paths() uses, and the
 // same pair the Go harness's loadRealConfigScanner loads.
@@ -101,23 +140,48 @@ std::string corpus_path() {
     return root + "/tests/data/guard_rule_cases.yaml";
 }
 
-// Corpus strings are stored reversed-then-base64url-encoded (see the
-// file-level doc comment): un-reverse, then decode.
+std::string corpus_counts_path() {
+    const std::string root(LLMGUARD_REPO_ROOT);
+    return root + "/tests/data/guard_rule_cases.counts.yaml";
+}
+
+// Corpus strings that use the `_b64` key are stored reversed-then-base64url-
+// encoded (see the file-level doc comment): un-reverse, then decode.
 std::string decode_field(const YAML::Node& node) {
     std::string encoded = node.as<std::string>();
     std::reverse(encoded.begin(), encoded.end());
     return Utils::Base64::url_decode(encoded);
 }
 
-std::vector<RuleCorpusEntry> load_corpus() {
+// Reads whichever of `plain_key`/`b64_key` is present on `node` (exactly one
+// is expected). Appends to `issues` and returns an empty string on 0 or 2
+// present, naming `rule_id` and the field for triage.
+std::string read_one_of(const YAML::Node& node,
+                        const std::string& plain_key,
+                        const std::string& b64_key,
+                        const std::string& rule_id,
+                        std::vector<std::string>& issues) {
+    const bool has_plain = static_cast<bool>(node[plain_key]);
+    const bool has_b64 = static_cast<bool>(node[b64_key]);
+    if (has_plain && !has_b64)
+        return node[plain_key].as<std::string>();
+    if (has_b64 && !has_plain)
+        return decode_field(node[b64_key]);
+
+    issues.push_back("rule '" + rule_id + "': expected exactly one of '" + plain_key + "'/'" + b64_key +
+                      "', found " + std::to_string(static_cast<int>(has_plain) + static_cast<int>(has_b64)));
+    return {};
+}
+
+LoadedCorpus load_corpus() {
     const YAML::Node root = YAML::LoadFile(corpus_path());
-    std::vector<RuleCorpusEntry> out;
+    LoadedCorpus result;
 
     const YAML::Node cases = root["cases"];
     if (!cases || !cases.IsSequence())
-        return out;
+        return result;
 
-    out.reserve(cases.size());
+    result.entries.reserve(cases.size());
     for (const auto& c : cases) {
         RuleCorpusEntry entry;
         entry.rule_id = c["rule_id"].as<std::string>();
@@ -125,55 +189,97 @@ std::vector<RuleCorpusEntry> load_corpus() {
         if (const YAML::Node pos = c["positives"]) {
             for (const auto& p : pos) {
                 PositiveCase pc;
-                pc.text = decode_field(p["text_b64"]);
-                if (p["expect_span_b64"]) {
-                    pc.expect_span = decode_field(p["expect_span_b64"]);
+                pc.text = read_one_of(p, "text", "text_b64", entry.rule_id, result.schema_issues);
+                if (p["expect_span"] || p["expect_span_b64"]) {
+                    pc.expect_span = read_one_of(p, "expect_span", "expect_span_b64", entry.rule_id,
+                                                 result.schema_issues);
                     pc.has_expect_span = true;
+                } else {
+                    result.schema_issues.push_back("rule '" + entry.rule_id +
+                                                   "': positive case missing expect_span (mandatory -- every "
+                                                   "positive in the Go corpus pins an exact span)");
                 }
                 entry.positives.push_back(std::move(pc));
             }
         }
-        if (const YAML::Node neg = c["negatives_b64"]) {
-            for (const auto& n : neg)
+
+        const bool has_plain_neg = static_cast<bool>(c["negatives"]);
+        const bool has_b64_neg = static_cast<bool>(c["negatives_b64"]);
+        if (has_plain_neg && has_b64_neg) {
+            result.schema_issues.push_back("rule '" + entry.rule_id +
+                                           "': both 'negatives' and 'negatives_b64' present, expected at most one");
+        } else if (has_b64_neg) {
+            for (const auto& n : c["negatives_b64"])
                 entry.negatives.push_back(decode_field(n));
+        } else if (has_plain_neg) {
+            for (const auto& n : c["negatives"])
+                entry.negatives.push_back(n.as<std::string>());
         }
-        out.push_back(std::move(entry));
+
+        result.entries.push_back(std::move(entry));
+    }
+    return result;
+}
+
+std::map<std::string, RuleCounts> load_corpus_counts() {
+    const YAML::Node root = YAML::LoadFile(corpus_counts_path());
+    std::map<std::string, RuleCounts> out;
+
+    const YAML::Node counts = root["rule_counts"];
+    if (!counts || !counts.IsMap())
+        return out;
+
+    for (const auto& entry : counts) {
+        RuleCounts rc;
+        rc.positives = entry.second["positives"].as<std::size_t>();
+        rc.negatives = entry.second["negatives"].as<std::size_t>();
+        out.emplace(entry.first.as<std::string>(), rc);
     }
     return out;
 }
 
-// Shared fixture: the real 266-rule registry and the parsed corpus are each
-// built once per test *suite* (not per TEST_F) -- compiling 266 RE2 patterns
-// and re-parsing (and base64-decoding) a ~100 KB YAML file for every one of
-// the TEST_F cases below would multiply this file's runtime for no benefit,
-// since none of them mutate either.
+// Shared fixture: the real 266-rule registry and the parsed corpus (+ its
+// per-rule counts sidecar) are each built once per test *suite* (not per
+// TEST_F) -- compiling 266 RE2 patterns and re-parsing (and base64-decoding)
+// the corpus YAML for every one of the TEST_F cases below would multiply
+// this file's runtime for no benefit, since none of them mutate either.
 class GuardRuleCorpus : public ::testing::Test {
 protected:
     static void SetUpTestSuite() {
         auto loaded = Guard::load_rules_files(real_catalog_paths());
         registry_ = Guard::Registry::build(loaded.rules);
-        corpus_ = new std::vector<RuleCorpusEntry>(load_corpus());
+        corpus_ = new LoadedCorpus(load_corpus());
+        counts_ = new std::map<std::string, RuleCounts>(load_corpus_counts());
     }
 
     static void TearDownTestSuite() {
         registry_.reset();
         delete corpus_;
         corpus_ = nullptr;
+        delete counts_;
+        counts_ = nullptr;
     }
 
     static std::shared_ptr<const Guard::Registry> registry_;
-    static std::vector<RuleCorpusEntry>* corpus_;
+    static LoadedCorpus* corpus_;
+    static std::map<std::string, RuleCounts>* counts_;
 };
 
 std::shared_ptr<const Guard::Registry> GuardRuleCorpus::registry_;
-std::vector<RuleCorpusEntry>* GuardRuleCorpus::corpus_ = nullptr;
+LoadedCorpus* GuardRuleCorpus::corpus_ = nullptr;
+std::map<std::string, RuleCounts>* GuardRuleCorpus::counts_ = nullptr;
 
 }  // namespace
 
 // ── Corpus/catalog cross-checks ───────────────────────────────────────────
 
+TEST_F(GuardRuleCorpus, CorpusSchemaIsWellFormed) {
+    for (const auto& issue : corpus_->schema_issues)
+        ADD_FAILURE() << issue;
+}
+
 TEST_F(GuardRuleCorpus, EveryCorpusRuleIdExistsInTheRealCatalogs) {
-    for (const auto& entry : *corpus_) {
+    for (const auto& entry : corpus_->entries) {
         EXPECT_NE(registry_->by_id(entry.rule_id), nullptr)
             << "corpus rule_id '" << entry.rule_id
             << "' not found in the loaded catalogs (configs/rules.yaml + "
@@ -188,7 +294,7 @@ TEST_F(GuardRuleCorpus, CorpusCoversEveryLoadedRule) {
     // corpus case, so a rule added to the catalogs without a ported case is
     // caught here instead of shipping silently uncovered.
     std::unordered_set<std::string> covered;
-    for (const auto& entry : *corpus_)
+    for (const auto& entry : corpus_->entries)
         covered.insert(entry.rule_id);
 
     std::vector<std::string> missing;
@@ -215,20 +321,46 @@ TEST_F(GuardRuleCorpus, CaseCountsMatchGoReference) {
     // or duplicates cases trips this before it trips anything else.
     std::size_t positives = 0;
     std::size_t negatives = 0;
-    for (const auto& entry : *corpus_) {
+    for (const auto& entry : corpus_->entries) {
         positives += entry.positives.size();
         negatives += entry.negatives.size();
     }
-    EXPECT_EQ(corpus_->size(), 266u);
+    EXPECT_EQ(corpus_->entries.size(), 266u);
     EXPECT_EQ(positives, 347u);
     EXPECT_EQ(negatives, 34u);
     EXPECT_EQ(positives + negatives, 381u);
+
+    // Per-rule extension: the grand totals above cannot catch a case
+    // silently MOVED from one rule to another (the totals stay the same) --
+    // this cross-checks every rule's own {positives, negatives} count
+    // against tests/data/guard_rule_cases.counts.yaml, generated
+    // independently alongside the corpus by the same porting script.
+    ASSERT_FALSE(counts_->empty()) << "guard_rule_cases.counts.yaml failed to load or is empty";
+
+    std::unordered_set<std::string> seen;
+    for (const auto& entry : corpus_->entries) {
+        seen.insert(entry.rule_id);
+        const auto it = counts_->find(entry.rule_id);
+        if (it == counts_->end()) {
+            ADD_FAILURE() << "rule '" << entry.rule_id << "' has no entry in guard_rule_cases.counts.yaml";
+            continue;
+        }
+        EXPECT_EQ(entry.positives.size(), it->second.positives)
+            << "rule '" << entry.rule_id << "': positive count drifted from guard_rule_cases.counts.yaml";
+        EXPECT_EQ(entry.negatives.size(), it->second.negatives)
+            << "rule '" << entry.rule_id << "': negative count drifted from guard_rule_cases.counts.yaml";
+    }
+    for (const auto& count_entry : *counts_) {
+        EXPECT_NE(seen.find(count_entry.first), seen.end())
+            << "guard_rule_cases.counts.yaml has an entry for '" << count_entry.first
+            << "' with no matching corpus rule";
+    }
 }
 
 // ── Detection: positives / negatives ──────────────────────────────────────
 
 TEST_F(GuardRuleCorpus, PositiveCasesProduceExactlyOneMatchWithExpectedSpan) {
-    for (const auto& entry : *corpus_) {
+    for (const auto& entry : corpus_->entries) {
         const Guard::CompiledRule* rule = registry_->by_id(entry.rule_id);
         if (rule == nullptr)
             continue;  // reported by EveryCorpusRuleIdExistsInTheRealCatalogs
@@ -254,16 +386,25 @@ TEST_F(GuardRuleCorpus, PositiveCasesProduceExactlyOneMatchWithExpectedSpan) {
                 continue;
             }
 
-            if (pc.has_expect_span) {
-                const std::string got = pc.text.substr(matches[0].start, matches[0].end - matches[0].start);
-                EXPECT_EQ(got, pc.expect_span) << "rule '" << entry.rule_id << "' span mismatch\n  input: " << pc.text;
+            // Documents intent: with the rule set restricted to exactly one
+            // rule, this always holds by construction -- pinned explicitly
+            // rather than left implicit.
+            ASSERT_NE(matches[0].rule, nullptr);
+            EXPECT_EQ(matches[0].rule->rule.id, entry.rule_id);
+
+            if (!pc.has_expect_span) {
+                ADD_FAILURE() << "rule '" << entry.rule_id << "': positive case has no expect_span to check"
+                              << "\n  input: " << pc.text;
+                continue;
             }
+            const std::string got = pc.text.substr(matches[0].start, matches[0].end - matches[0].start);
+            EXPECT_EQ(got, pc.expect_span) << "rule '" << entry.rule_id << "' span mismatch\n  input: " << pc.text;
         }
     }
 }
 
 TEST_F(GuardRuleCorpus, NegativeCasesProduceNoMatch) {
-    for (const auto& entry : *corpus_) {
+    for (const auto& entry : corpus_->entries) {
         const Guard::CompiledRule* rule = registry_->by_id(entry.rule_id);
         if (rule == nullptr)
             continue;  // reported by EveryCorpusRuleIdExistsInTheRealCatalogs

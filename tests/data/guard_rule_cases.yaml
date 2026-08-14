@@ -1,1206 +1,1237 @@
+# Per-rule positive/negative detection corpus, ported from the Go reference's
+# tests/rules/rules_cases_test.go. See task-1.9-report.md
+# (.superpowers/sdd/2026-08-14-phase0-phase1-bootstrap-and-engine/) for the
+# full derivation. Loaded by tests/unit/test_guard_rule_corpus.cpp.
+#
+# Schema: cases: [{rule_id, positives: [{text|text_b64, expect_span|expect_span_b64}],
+#                   negatives|negatives_b64: [...]}]
+# Every rule uses exactly ONE encoding throughout (never mixed within a rule):
+#   - most hand-written rules (configs/rules.yaml) are PLAINTEXT (`text`/
+#     `expect_span`/`negatives`) -- readable and diffable, since their
+#     fixtures (Cyrillic PII, generic DSN/header/password shapes) don't
+#     resemble a known secret-scanner format.
+#   - the 220 gitleaks-derived rules (configs/rules.gitleaks.generated.yaml),
+#     PLUS a handful of hand-written rules that are custom equivalents of a
+#     well-known vendor secret format (access_tokens.npm-token,
+#     access_tokens.private-key-pem, access_tokens.twilio-auth-token,
+#     access_tokens.vault-token, api_keys.stripe-key,
+#     api_keys.stripe-restricted), are reversed-base64url
+#     (`text_b64`/`expect_span_b64`/`negatives_b64`), because those fixtures
+#     are, by design, shaped exactly like real provider secrets and trip
+#     GitHub's server-side secret-scanning push protection when committed as
+#     plaintext -- confirmed empirically by two rounds of rejected pushes.
+#
+# To read an encoded rule's fixtures in plaintext (for review) or to encode a
+# new fixture string by hand, use scripts/corpus-codec.py:
+#   python3 scripts/corpus-codec.py decode tests/data/guard_rule_cases.yaml
+#   python3 scripts/corpus-codec.py encode 'some fixture text'
+#
+# Per-rule case counts are pinned separately in guard_rule_cases.counts.yaml
+# (regenerated alongside this file) so a future edit that moves a case
+# between rules -- not just one that changes the grand total -- is caught.
 cases:
 - rule_id: access_tokens.1password-secret-key.gl
   positives:
   - text_b64: ISQBFUQB1SQBFUQB1SQBFUQB1SQBFUQBFUQBFUQB1SQBFUQBFULzEkI9kVRL9FVFJ1QFN1XEJ1TXN1UBBVM
     expect_span_b64: BFUQBFULBFUQBFULBFUQBFULBFUQBFUQBFUQBFULBFUQBFUQtMTQ
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.1password-service-account-token.gl
   positives:
   - text_b64: i0TP9EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmS5V2XzB3bi0jTFt0TU9FVOV1TDNUQfV0QJZlUFN1XEJ1TXN1UBBVM
     expect_span_b64: 0TP9EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmS5V2XzB3b
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.age-secret-key.gl
   positives:
   - text_b64: gIBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFTLZV0StQVRSNURT1SRHFkI9kVRL9FVFJ1QFN1XFdUQ
     expect_span_b64: EUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUMtkVRL1CVFJ1QFNVLFdUQ
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.airtable-personnal-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5SYhFWYhFWYhFWYhFWYhRXYwJCI9Aiblt2b091czV2YjF2XsFmbu92cyVGcfVGbiFGdylWY
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuEWYhFWYhFWYhFWYhFWY0FGc
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.alibaba-access-key-id.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhlUQUxkIg0DIkl2X5V2afN3clN2Yh9VYiFmYpxWY
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWSBRFT
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.alibaba-secret-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI5V2afRXZyNWZz9VYiFmYpxWY
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.artifactory-reference-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFGZtZVbjJSPOV0SPR1XFNkTFJVRGVkUfllUPR1QBZUSUJVQ
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhRWbW12Y
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.authress-service-client-access-key.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfN2Yh5SYhFWYhFmLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfN2ci0TWFt0XTNVRDNUQfRlTFlETD9VRDlkVSV0UfN1UFJFSUVVQ
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfN2Yh5SYhFWYhFmLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfN2c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.aws-access-token.gl
   positives:
   - text_b64: iEUQBFUQBFUQBFUQBFUQBFUQUNTQi0jTFt0TU91UTV0QDF0XTdVQ
     expect_span_b64: EUQBFUQBFUQBFUQBFUQBFUQUNTQ
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.bittrex-access-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI5V2afN3clN2Yh9FelJHd0lmY
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.bittrex-secret-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI5V2afRXZyNWZz9FelJHd0lmY
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.cloudflare-origin-ca-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtAjLxYnIg0DI5V2afF2Yf5Wanlmcv9VZyFGbmRWdvx2Y
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1CMuEjd
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.codecov-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfN3clN2Yh9ldvNWZk92Y
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.coinbase-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DIuV2avR3XzNXZjNWYfV2chJmbp92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.confluent-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b091czV2YjF2X05WZ1xmZu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.confluent-secret-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPgkXZr9FdlJ3YlN3X05WZ1xmZu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.datadog-access-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfN3clN2Yh91ZvRWY0FGZ
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.digitalocean-access-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XxY3Xv9GZi0jTFt0TU91UTV0QDF0XOFURD9ETBRVSHlER
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XxY3Xv9GZ
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.digitalocean-pat.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XxY3Xw9GZi0DVBB1XOFURD9ETBRVSHlER
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XxY3Xw9GZ
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.droneci-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfN3clN2Yh9VajVmbvJHZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.etsy-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfN3clN2Yh9VezRXZ
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.facebook-access-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYlETMxETMxETMxETMxETMxEjIg0DIuV2avR3XzNXZjNWYft2bvJWZjFmZ
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhVSMxETMxETMxETMxETMxETM
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.facebook-page-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2QBFURiASPg4WZr9GdfN3clN2Yh9VZnFGcft2bvJWZjFmZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2QBFUR
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.finnhub-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfN3clN2Yh9lY1hmbulmZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.flickr-access-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b091czV2YjF2Xyt2YpxmZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.flutterwave-encryption-key.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYh1CVTVEVft0QFN1VMZkI9kVRL9lTPlEVQllUD5URfVkVBdlUFRFVVxkR
     expect_span_b64: QYhFWYhFWYhFWYhFWLUNVRU91SDV0UXxkR
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.flutterwave-public-key.gl
   positives:
   - text_b64: igVLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLUNVRU91SCVFUXxkRi0TWFt0XDlETCVFUfVkVBdlUFRFVVxkR
     expect_span_b64: gVLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLUNVRU91SCVFUXxkR
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.flutterwave-secret-key.gl
   positives:
   - text_b64: igVLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLUNVRU91SDV0UXxkRi0TWFt0XUVkUDV0UfVkVBdlUFRFVVxkR
     expect_span_b64: gVLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLUNVRU91SDV0UXxkR
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.freemius-secret-key.gl
   positives:
   - text_b64: 701JhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XLN1Jg4TPgcSelt2X0VmcjV2cnsFI9AyZpZmbvNGJ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYft0U
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.freshbooks-access-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfN3clN2Yh91cr92bih2clJnZ
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.github-app-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfNHanJSPOV0SPR1XCVFSUl0R
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2Xzh2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.github-fine-grained-pat.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2X0FGcfJWdoRXanJSPOV0SPR1XCVFSUl0R
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9FdhB3XiVHa0l2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.github-pat.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfBHanJSPOV0SPR1XCVFSUl0R
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2Xwh2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-cicd-job-token.gl
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYh9VYhFWYh1CdiNGbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYfFWYhFWYtQnYjx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-deploy-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWL0RGbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYh1Cdkx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-feature-flag-client-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYtQ3YmZGbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWL0NmZmx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-feed-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWL0ZGbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYh1Cdmx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-incoming-mail-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1CdtlGbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtQXbpx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-kubernetes-agent-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWL05WZnFGbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1CduV2Zhx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-pat-routable.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYuEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1CdhBHbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: QYhFWYhFWYhFmLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtQXYwx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-pat.gl
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYh1CdhBHbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYtQXYwx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-ptt.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1Cd0BHbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtQHdwx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-rrt.gl
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYhFDN5gDNzEjUHJSPOV0SPR1XCFETUl0R
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYxQTO4QzMxI1R
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-runner-authentication-token-routable.gl
   positives:
   - text_b64: iEWYhFWYhFWYh5SYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XxQXL0JHbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: hFWYhFWYhFWYuEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VM01Cdyx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-runner-authentication-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWL0JHbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYh1Cdyx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitlab-scim-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYtQXYvNHbnJSPOV0SPR1XCFETUl0R
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWL0F2bzx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.gitter-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b091czV2YjF2XyVGd0l2Z
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.grafana-service-account-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYfFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfF0UMdkI94URL9EVfRlTV90QDF0XFNUSWJVRT9VQOFkRBJ1R
     expect_span_b64: QYhFWYhFWYh9VYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VQTx0R
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.huggingface-access-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9lZoJSPOV0SPR1XTNVRDNUQfV0QBZ0ROl0RHVFS
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfZGa
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.jfrog-identity-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdflHdpRnblRWafd2byZma
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.kraken-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b091czV2YjF2XuV2ahJ3a
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.kucoin-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b091czV2YjF2Xul2bjV3a
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.kucoin-secret-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWYiASPgkXZr9FdlJ3YlN3Xul2bjV3a
     expect_span_b64: hFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.launchdarkly-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b091czV2YjF2X5x2ayFGZoNmb1FGb
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.mailgun-pub-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1SWFtkQVBlIg0DI5V2afJWdw9lb1dGbpFWb
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLZV0SCVFU
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.mailgun-signing-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYh1SYhFWYhFWYh1SYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ASelt2Xn5WaudWaz9lb1dGbpFWb
     expect_span_b64: EWYhFWYhFWYtEWYhFWYhFWYtEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.mattermost-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfN3clN2Yh9Fdz9WbyVGd0FWb
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.maxmind-license-key.gl
   positives:
   - text_b64: Iyat12XhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XhFWYhFWYi0TWFt0XFNlTFNUSM9FROlUTYFUT
     expect_span_b64: wat12XhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.microsoft-teams-webhook.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWYvEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYvs2bvhmYld1ZulWbvNmbJ9SYhFWYhFWYhFWYhFWLhFWYh1SYhFWYtEWYhFWLhFWYhFWYhFGQhFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWYvIjYr92boJWZ39SbvNmLlNWamZ2bus2bvhmYldnLh9yL6MHc0RHaiASPgwmc191av9GaiV2dfNXbhVGd
     expect_span_b64: hFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWYvEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYvs2bvhmYld1ZulWbvNmbJ9SYhFWYhFWYhFWYhFWLhFWYh1SYhFWYtEWYhFWLhFWYhFWYhFGQhFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWYvIjYr92boJWZ39SbvNmLlNWamZ2bus2bvhmYldnLh9yL6MHc0RHa
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.netlify-access-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfN3clN2Yh9VemlGb0Vmb
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.new-relic-insert-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1SSJJlTiASPgkXZr9FdyV2cul2XjlGblJ3X3Vmb
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1SSJJlT
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.npm-access-token.gl
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XNBlTi0jTFt0TU91UTV0QDF0XNBlT
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XNBlT
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.npm-token
   positives:
   - text_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XtBnb94WZr9GVoRXdh9lOvcmcv5ycq1Gcu5SeyR3cpdWZy9yL
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XtBnb
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.nytimes-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfN3clN2Yh91cl1Wa0lnb
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.okta-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhBDMiASPg4WZr9GdfN3clN2Yh9VY0t2b
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhBDM
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.openshift-user-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5nN1ITYoNnI94URL9EVfJVRTV1XUZUSINlTFB1T
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmf2UjMhh2c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.plaid-secret-key.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ASelt2X0VmcjV2cfRWahxGc
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.private-key-pem
   positives:
   - text_b64: t0SLt0SWFtEIFRVQWlkUQBSQTJFIE5URt0SLt0iChFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYBVUUBN0SBFkQJFEcFlUSNpQLt0SLtkVRLBSRUFkVJJFUgE0USBiTJdURC1SLt0SL
     expect_span_b64: t0SLt0SWFtEIFRVQWlkUQBSQTJFIE5URt0SLt0iChFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYBVUUBN0SBFkQJFEcFlUSNpQLt0SLtkVRLBSRUFkVJJFUgE0USBiTJdURC1SLt0SL
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.private-key.gl
   positives:
   - text_b64: 0SLt0SLZV0SgUEVBZVSSBFIIN1UOVEUPBCROVULt0SLtoQYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYK0SLt0SLZV0SgUEVBZVSSBFIIN1UOVEUPBiTJdURC1SLt0SL
     expect_span_b64: 0SLt0SLZV0SgUEVBZVSSBFIIN1UOVEUPBCROVULt0SLtoQYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYK0SLt0SLZV0SgUEVBZVSSBFIIN1UOVEUPBiTJdURC1SLt0SL
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.pypi-upload-token.gl
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYj12Y2VzUhdHbINWSFdWQtkGc5BnI94URL9EVfRUQPxEUV9VSQlFU
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhNWbjZXNTF2dsh0YJV0ZB1SawlHc
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.rapidapi-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DIuV2avR3XzNXZjNWYflGchRWawFmc
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.sendbird-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DIuV2avR3XzNXZjNWYfRmcpJGZuV2c
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.sentry-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b091czV2YjF2X5JHduV2c
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.sentry-org-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VP9EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYzpEWkZWNyIGckdlW5p0QMFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYPlWUYlFcKlXZfNXeyRnbzJCI9Aiblt2b091Zy92X5JHduV2c
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYf1TPhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2cKhFZmVjMiBHZXpVeKNEThFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2TpFFWZBnS5V2Xzlnc052c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.sentry-user-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2X1lnc052ciASPg4WZr9GdfJXZzV3X5JHduV2c
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2X1lnc052c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.settlemint-application-access-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYh9FdhF2XtNnI94URL9EVfN1UFN0QB9lTPlEVBNUSMBFUB9FVOlUTFxEVUV0U
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhF2X0FWYf12c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.settlemint-personal-access-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYh9FdhB3XtNnI94URL9EVfN1UFN0QB9FTB50TTJVRQ9FVOlUTFxEVUV0U
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhF2X0FGcf12c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.settlemint-service-access-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhF2X0F2cf12ci0jTFt0TU91UTV0QDF0XFNUSWJVRT9FVOlUTFxEVUV0U
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhF2X0F2cf12c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.shopify-access-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2X0FGcoNnI94URL9EVfN1UFN0QB9VWGlEUPh0U
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfRXYwh2c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.shopify-custom-access-token.gl
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VYjBHazJSPOV0SPR1XTNVRDNUQf10TUNVVD9VWGlEUPh0U
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfF2Ywh2c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.shopify-private-app-access-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XhBHcoNnI94URL9EVfN1UFN0QB9FUQF0XFRVQWlkUQ9VWGlEUPh0U
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfFGcwh2c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.slack-app-token.gl
   positives:
   - text_b64: ISYtETLh1SMtAFUBhlI94URL9EVft0QBx0U
     expect_span_b64: h1SMtEWLx0CUQFEW
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.slack-bot-token.gl
   positives:
   - text_b64: gIxETMxETMxETMxETMx0SMxETMxETMxETMxETMtIGevhnI94URL9EVft0QBx0U
     expect_span_b64: ETMxETMxETMxETMxETLxETMxETMxETMxETMx0iY49Ge
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.slack-config-access-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLx0iYY9EW4VEWPhlI94URL9EVft0QBx0U
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtETLih1TYhXRY9EW
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.slack-legacy-bot-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtETMxETMxETMxETMxETMtIGevhnI94URL9EVft0QBx0U
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1SMxETMxETMxETMxETMx0iY49Ge
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.slack-legacy-token.gl
   positives:
   - text_b64: ISYtETLx0SMt8GevhnI94URL9EVft0QBx0U
     expect_span_b64: h1SMtETLx0yb49Ge
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.slack-legacy-workspace-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1SMtEGevhnI94URL9EVft0QBx0U
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLx0SY49Ge
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.slack-user-token.gl
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtETMxETMxETMxETMxETLxETMxETMxETMxETMx0SMxETMxETMxETMxETMtUGevhnI94URL9EVft0QBx0U
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1SMxETMxETMxETMxETMtETMxETMxETMxETMxETLxETMxETMxETMxETMx0SZ49Ge
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.slack-webhook-url.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2LzV2YpZnclN3Lt92Y4t2Yhx2c4N3av9Gav8iOzBHd0hmI94URL9EVft0QBx0U
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYvMXZjlmdyV2cv02bjh3ajFGbzh3cr92bo9yL6MHc0RHa
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.sourcegraph-access-token.gl
   positives:
   - text_b64: gIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VYhFWYhFWYhFWYhFWYhFWYfB1RTJSPOV0SPR1XTNVRDNUQfhEUBJ1RFNkUV90U
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfFWYhFWYhFWYhFWYhFWYhF2XQd0U
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.square-access-token.gl
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWQBFURi0jTFt0TU91UTV0QDF0XFJVQVF1U
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWQBFUR
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.squarespace-access-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWLhFWYh1SYhFWYtEWYhFWLhFWYhFWYhFmIg0DIuV2avR3XzNXZjNWYfV2YhB3clJXY1F3c
     expect_span_b64: hFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.stripe-access-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9FdzVGdft2ci0jTFt0TU91UTV0QDF0XFBVSSR1U
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9FdzVGdft2c
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.sumologic-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b091czV2YjF2Xjl2Zvx2btV3c
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.travisci-access-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DIuV2avR3XzNXZjNWYfl2YzlmdhJHd
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.twilio-auth-token
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdfhGd1FGIvlGbpdHd
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.twitter-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1SMxETMxETMxETMxETMxETMxETMxETMxETMiASPg4WZr9GdfN3clN2Yh9lclRHdpdHd
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1SMxETMxETMxETMxETMxETMxETMxETMxETM
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.vault-batch-token.gl
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5iY2hmI94URL9EVfh0QUFkQfRFTVFkV
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLiZHa
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.vault-service-token.gl
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLzZHai0jTFt0TU9VRDlkVSV0UfRFTVFkV
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLzZHa
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.vault-token
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5iY2hmI94URL9EVfRFTVFkV
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLiZHa
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.yandex-access-token.gl
   positives:
   - text_b64: 7ISP9EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYu0TPh5SMUJCI9Aiblt2b091czV2YjF2X4VGZuFWe
     expect_span_b64: 0TPhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmL90TYuEDV
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.yandex-aws-access-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhNUWiASPg4WZr9GdfN3clN2Yh91c3F2X4VGZuFWe
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhNUW
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.zendesk-secret-key.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI5V2afRXZyNWZz91azVGZuVme
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: access_tokens.generic-token
   positives:
-  - text_b64: 6CdkRLY0BGNuQDCcvlWd5RncldXc5gzN2UDNzITM6lHeDJUQgAL0_C9gRLY0BGtvQTL0g0L01CtuQ7L0CGNI5CtvQzL0
-    expect_span_b64: AcvlWd5RncldXc5gzN2UDNzITM6lHeDJUQ
-  - text_b64: kL0-CNnQDiLjdTY0QWMlhjY1YmMhlzY2Q2MlhjYxY2NhRzY5UmMkVjY4E2MmZzYxUGNiJTY5QGOmdDI6wY0CGNsQLY0-CdsQDL0AGNI7CNsQLY0BGdtQDY01C9vQDSvQXL06CtvQLY0
-    expect_span_b64: M2NhRDZxUGOiVjZyEWOjZDZzUGOiFjZ3EGNjlTZyQWNihTYzYmNjFTZ0ImMhlDZ4Y2N
-  - text_b64: QvQXL07CtsQDL0AG9vQLY0-CNIzkTN3QDOg8Y04CdvQXL07CtsQ7L09CNsQLY0BGdgR7L0yCNI0CtvQrL0
-    expect_span_b64: zkTN3QDO
-  - text_b64: wC9vQPY0CGdgR7L00CNIPG9uQTL0gQDZzUmMmFTYwIWOjhDZ3UmNmVTY0IWMjJDZ5UGOmNzXpBXYgcY0OG9uQrL0gkEUBBStQLY05C9gRfL0MG9uQ7L0_CdgRjL0
-    expect_span_b64: QDZzUmMmFTYwIWOjhDZ3UmNmVTY0IWMjJDZ5UGOmNzXpBXY
-  negatives_b64: []
+  - text: мой токен доступа ABCxyz123456789qwertyuiop истёк
+    expect_span: ABCxyz123456789qwertyuiop
+  - text: 'токен перестал работать: 7f8d9a2b4e1c6f3a8b5d2e9c4a7f1b8e3d6c9a2f5b8e1d4a7c. Мой'
+    expect_span: 7f8d9a2b4e1c6f3a8b5d2e9c4a7f1b8e3d6c9a2f5b8e1d4a7c
+  - text: код восстановления 847593 отправлен
+    expect_span: '847593'
+  - text: используйте API ключ api_3f8e9d2c1b4a5f6e7d8c9b0a1f2e3d4 для доступа
+    expect_span: api_3f8e9d2c1b4a5f6e7d8c9b0a1f2e3d4
+  negatives: []
 - rule_id: access_tokens.generic-long-token
   positives:
-  - text_b64: 6CdkRLY0BGNuQDiMxADbrp2TJVVO4cDanZWWUJlN1QzY4pXRXF1MyEDZzF2QYpFI5C9iRDY0wCtgRHY0
-    expect_span_b64: yEDMstmaPlUV5gzNodmZZRlU2UDNjhneFdVUzITMkNXYDhlW
-  - text_b64: oL0RGtgRHY04CNIUNXOSB3NO1WNLp2MIdWMGVWOEN2NCFWNal3MYZHMVRHOTJnNRBHI5C9iRDY0wCtgRHY0
-    expect_span_b64: Q1c5IFc34Ub1skazg0ZxYUZ5Q0Y3IUY1oVezgldwUFd4Mlc2EFc
-  negatives_b64:
-  - 0L01CttQDY01CNvQHY0gQ2YiFGM5gzN2UDNzITMwkDO3YTN0MjMxATO4cjNmVTZ0Q2MjJjYxEGI0lWbt92Y
-  - QtQfL0wCdsQDisQDCMwADM0QTN1YjN0QjNxcTY0QWM0IWOyUGMwQDOlBTN1ACRJVVV
+  - text: старый ZXCasd123QWEzxc456RTYfgh789UIOjkl012 истёк
+    expect_span: ZXCasd123QWEzxc456RTYfgh789UIOjkl012
+  - text: старый pQ6rS8tU0vX3yZ5aB7cD9eF1gH3jK5mN7pR9sT истёк
+    expect_span: pQ6rS8tU0vX3yZ5aB7cD9eF1gH3jK5mN7pR9sT
+  negatives:
+  - commit a1b2c3d4e5f6789012345678901234567890abcd смержен
+  - UUID 550e8400e29b41d4a716446655440000 в базе
 - rule_id: api_keys.adafruit-api-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ASelt2XpBXYfRXa1JnZhRWY
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.airtable-api-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhJCI9ASelt2XpBXYfVGbiFGdylWY
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.algolia-api-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI5V2aflGch9VYpx2bnxWY
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.anthropic-admin-api-key.gl
   positives:
   - text_b64: wOiEUQhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtEDMulWbkFWL05WYts2ciASPgkXZr9VawF2XulWbkF2XjlGcvJHa05WYgQ3cu92Y
     expect_span_b64: EUQhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtEDMulWbkFWL05WYts2c
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.anthropic-api-key.gl
   positives:
   - text_b64: sjIBFUYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLzATawFWL05WYts2ciASPgkXZr9VawF2XjlGcvJHa05WYgQ3cu92Y
     expect_span_b64: BFUYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLzATawFWL05WYts2c
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.artifactory-api-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYwN0SBJCI9ASelt2XpBXYflncvR3YhZWa0JXYgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFGcDtUQ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.aws-amazon-bedrock-api-key-long-lived.gl
   positives:
   - text_b64: 7ISP9EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYLNlQBJCI9ACZlZXas91Zu9GbflXZr9VawF2XrN2byRWZi9lbvpXYtF2XzdXYgQ3cu92Y
     expect_span_b64: 0TPhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2STJUQ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.aws-amazon-bedrock-api-key-short-lived.gl
   positives:
   - text_b64: wOiQXOykVdNNDZoVjMiZjRXJGa1kXYqlTbjtmVtlVL5V2atkGch1yaj9mckVmYiASPgQWZ2lGbfRncvh2cflXZr9VawF2XrN2byRWZi9lbvpXYtF2XzdXYgQ3cu92Y
     expect_span_b64: QXOykVdNNDZoVjMiZjRXJGa1kXYqlTbjtmVtlVL5V2atkGch1yaj9mckVmY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.beamer-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XCJCI9Aiblt2b09VawF2XyVWbhVmY
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9lQ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.cisco-meraki-api-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPgkXZr9VawF2XptWYyVWbf92Yzl2Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.clickhouse-cloud-api-secret-key.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYkFjY0ICI9ASelt2X0VmcjV2cflGch9FZ19Gbj9VZzV3bot2Ypx2YgQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFGZxIGN
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.clojars-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh91USFkSPx0QiASPg4WZr9GdflGch91cyFmavx2YgQ3cu92Y
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh91USFkSPx0Q
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.cloudflare-api-key.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI5V2aflGch9VZyFGbmRWdvx2Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.cloudflare-global-api-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ASelt2XpBXYfxWYi9Gbn9VZyFGbmRWdvx2Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.cohere-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b09VawF2XlJXZo92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.contentful-delivery-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdflGch9VeyVmdpxWZk9Fb1ZGduVGdu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.databricks-api-token.gl
   positives:
   - text_b64: wOiETLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWawFGZiASPg4WZr9GdflGch91crNWayJWY0FGZgQ3cu92Y
     expect_span_b64: ETLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWawFGZ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.defined-networking-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtkVRL5ERiASPgkXZr5GZ
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtkVRL5ER
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.discord-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdflGch9FZy92YzlGZ
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.doppler-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuQHcuAHZiASPg4WZr9GdflGch9lclxGcw9GZgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuQHcuAHZ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.dropbox-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYiASPg4WZr9GdflGch9FevJGcvJHZ
     expect_span_b64: hFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.dropbox-long-lived-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFUQBFUQBFUQBFUYhFWYhFWYhFWYhJCI9Aiblt2b09FevJGcvJHZ
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYBFUQBFUQBFUQBFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.dropbox-short-lived-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5CTTJCI9Aiblt2b09FevJGcvJHZ
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuw0U
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.duffel-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9FdzVGdfxWZmZWdkJCI9Aiblt2b09VawF2XsVmZmVHZgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfR3clR3XsVmZmVHZ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.dynatrace-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuEDMjBDdkJCI9Aiblt2b09VawF2XlNWYyRXYulHZgQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5SYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLxAzYwQHZ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.easypost-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhtUQaVkIg0DIuV2avR3XpBXYfR3cvBXezFWZgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2SBpVR
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.easypost-test-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2SUpVRiASPg4WZr9GdflGch9FdzVGdfR3cvBXezFWZgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2SUpVR
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.fastly-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b09VawF2X5xGdzFmZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.finicity-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DIuV2avR3XpBXYflHdpNWaulmZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.flyio-access-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VMvZmIg0DIuV2avR3XzNXZjNWYf9Wa5xmZgQ3cu92Y
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2Xx8mZ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.frameio-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtUXLvlmZiASPg4WZr9GdflGch91bpVWbhJnZgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtUXLvlmZ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.gcp-api-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY6lUQiASPgkXZr9VawF2XwN2ZgQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY6lUQ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.gocardless-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VRWlETiASPg4WZr9GdflGch91czVGbkJXYj92Z
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VRWlET
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.grafana-api-key.gl
   positives:
   - text_b64: 7ISP90TYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYJ9kSJJlSZVkIg0DI5V2aflGch9VYuFmZhJ3ZgQ3cu92Y
     expect_span_b64: 90TPhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhl0TKlkUKlVR
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.grafana-cloud-api-token.gl
   positives:
   - text_b64: wOi0TP9EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XDx0RiASPg4WZr9GdflGch9FZ19Gbj9VYuFmZhJ3ZgQ3cu92Y
     expect_span_b64: 0TP9EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XDx0R
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.harness-api-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYh5SYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5CdhBnIg0DI5V2aflGch91czVmbyFGagQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFmLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuEWYhFWYhFWYhFWYhFWYhFWYhFWYhFmL0FGc
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.hashicorp-tf-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLxY3chxGdh5SYhFWYhFWYhFWYhFWYhJCI9Aiblt2b09VawF2XmR3XwJ3bjlGazFGagQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5SM2NXYsRXYuEWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.heroku-api-key-v2.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWQB1SVLJFSiASPgIjdflXZr9VawF2X1t2byVGa
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWQB1SVLJFS
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.heroku-api-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWYiASPgkXZr9VawF2X1t2byVGa
     expect_span_b64: hFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.hubspot-api-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWLhFWYh1SYhFWYtEWYhFWLhFWYhFWYhFmIg0DI5V2aflGch9FdvB3ciVHa
     expect_span_b64: hFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.huggingface-organization-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XnJ3bflGchJCI9Aiblt2b09VawF2Xu9Wa0Fmep5WYnJ3bfV2YhZ2Zul2ZnVHagQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh91Zy92XpBXY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.infracost-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYt82YpJCI9Aiblt2b09VawF2X0N3bjFmcm5WagQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLvNWa
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.intercom-api-key.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ASelt2XpBXYf12bjJXZ05Wa
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.jfrog-api-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ASelt2XpBXYfd2byZma
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.linear-api-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VawF2XulGbiASPgkXZr9VawF2XyFWZulGb
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VawF2XulGb
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.lob-api-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VRWlETiASPgkXZr9VawF2Xi9Gb
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VRWlET
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.lob-pub-api-key.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XCVFUfR1UFRlIg0DI5V2aflGch9lY1B3Xi9Gb
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfJUVQ9FVTVEV
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.mailchimp-api-key.gl
   positives:
   - text_b64: 7ISMxMVVtEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPgkXZr9VawF2Xw1WaoNGbpFWb
     expect_span_b64: QMxMVVtEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.mailgun-private-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtkVRLJCI9Aiblt2b09VawF2XlRXY2lmcw9lb1dGbpFWb
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLZV0S
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.mapbox-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5ySQJCI9Aiblt2b09VawF2X49mYwFWb
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYusEU
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.messagebird-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DIuV2avR3XpBXYfRmcpJWZnF2czVWb
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.new-relic-browser-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYtMlSS5kIg0DIuV2avR3XpBXYfJXZzd3byJ2XjlGblJ3X3Vmb
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYh1yUKJlT
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.new-relic-user-api-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLLFkUOJCI9ASelt2XpBXYfJXZzV3XjlGblJ3X3Vmb
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1ySBJlT
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.notion-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFTMxETMxETMxETMf5GduJCI9Aiblt2b09VawF2Xu9Wa09mbgQ3cu92Y
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYxETMxETMxETMxEzXuRnb
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.octopus-deploy-api-key.gl
   positives:
   - text_b64: wOiEUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQtkEUBJCI9ASelt2XpBXYfl3bsBXZk91c1B3b0N2bgQ3cu92Y
     expect_span_b64: BFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFULJBVQ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.openai-api-key.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYKZ0aixmQzQVYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1iavJHcts2ciASPgkXZr9VawF2XpFmblB3bgQ3cu92Y
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYKZ0aixmQzQVYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1iavJHcts2c
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.perplexity-api-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtgHbwBnIg0DI5V2aflGch9Ve0lGelxGcyVGcgQ3cu92Y
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1CesBHc
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.plaid-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWLhFWYh1SYhFWYtEWYhFWLhFWYhFWYhFWLY9kQE5UQT1yUTV0QDFkIg0DIuV2avR3XpBXYfRWahxGc
     expect_span_b64: hFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWYtg1TCRkTBNVLTNVRDNUQ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.planetscale-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYf52a09VZsF2YzBnIg0DIuV2avR3XpBXYfVGbhN2c0VmbhxGcgQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9lbrR3XlxWYjNHc
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.postman-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1ySB1EUiASPg4WZr9GdflGch9lbh1Gdz9GcgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1ySB1EU
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.prefect-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2X15GciASPg4WZr9GdflGch9FdjVmZlJHcgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2X15Gc
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.privateai-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b09VawF2XpFWZ0FmdpJHc
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.pulumi-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtwWdwJCI9Aiblt2b09VawF2Xp1WdsVHcgQ3cu92Y
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLsVHc
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.readme-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2Xl1GZyJCI9Aiblt2b09VawF2Xl1GZhVmcgQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VZtRmc
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.rubygems-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2Xz1WZnlnY1JnIg0DIuV2avR3XpBXYfNXbldWeiVncgQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfNXbldWeiVnc
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.scalingo-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLzVXLrRnIg0DIuV2avR3XpBXYf92ZulGbhN2cgQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtMXdtsGd
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.sendgrid-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmLHNlIg0DIuV2avR3XpBXYfRWaydGZuV2cgQ3cu92Y
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYuc0U
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.sendinblue-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1iYpNXeltGeiASPg4WZr9GdflGch9VZ1xmYulGZuV2cgQ3cu92Y
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWLhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh1iYpNXeltGe
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.shippo-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VZ2lGbf9GcwlGazJCI9Aiblt2b09VawF2XvBHcph2cgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfVmdpx2XvBHcph2c
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.snyk-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWYiASPg4WZr9GdflGch91a552c
     expect_span_b64: hFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.sonar-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XVF1UiASPg4WZr9GdfJXYu92c
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XVF1U
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.stripe-key
   positives:
   - text_b64: ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfVmdpx2XrNnI9kVRL9FVFJ1QFN1XFBVSSR1U
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VZ2lGbft2c
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.stripe-restricted
   positives:
   - text_b64: iEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XlZXas91ayJSPZV0SfRURUNUSSR1UFJ1XFBVSSR1U
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9VZ2lGbftmc
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.telegram-bot-api-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFkOxETMxETMxETMxETMxETMxICI9Aiblt2b09VawF2X09mYf1WYydWZsVGd
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYBpTMxETMxETMxETMxETMxETM
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.twilio-api-key.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYht0UiASPgkXZr9VawF2XvlGbpdHdgQ3cu92Y
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYht0U
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.twitch-api-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b09VawF2XoNGdpdHd
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.twitter-api-key.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI5V2aflGch9lclRHdpdHd
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.twitter-bearer-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWQBFUQBFUQBFUQBFUQBFUQBFUQBFUQiASPg4WZr9GdfJXZyFWZi9lclRHdpdHd
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWQBFUQBFUQBFUQBFUQBFUQBFUQBFUQ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.typeform-api-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh9FUGRlIg0DIuV2avR3XpBXYf1mcvZWZwlHd
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XQZEV
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.yandex-api-key.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmTWFVQiASPgkXZr9VawF2X4VGZuFWe
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmTWFVQ
-  negatives_b64: []
+  negatives: []
 - rule_id: api_keys.atlassian-api-token.gl
   positives:
   - text_b64: wOiImYiJWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9Aiblt2b09VYylma
     expect_span_b64: iJmYiFWYhFWYhFWYhFWYhFWYhFWYhFWY
   - text_b64: wOBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQzQFVBRVQ
     expect_span_b64: BFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQBFUQzQFVBRVQ
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.adobe-client-id.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DIkl2X05WZpx2YfVmYvRWY
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.adobe-client-secret.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtUGOwJCI9ACdlJ3YlN3X05WZpx2YfVmYvRWY
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLlhDc
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.amqp_connection
   positives:
-  - text_b64: iQ3cvhmdvwWYuJXZ05WauEXb0lmYiFmcAFWYhpjclNXdv8iOzBXctFmI9wkUV9FUR1UQ
-    expect_span_b64: Adz9Ga29Cbh5mclRnbp5SctRXaiJWYyBUYhFmOyV2c19yL6MHcx1WY
-  negatives_b64: []
+  - text: AMQP_URL="amqps://user:aaa@rabbitmq.internal/vhost"
+    expect_span: amqps://user:aaa@rabbitmq.internal/vhost
+  negatives: []
 - rule_id: credentials.api_key_header
   positives:
-  - text_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhBiO5V2StkGcB1CW
-    expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  - text: 'X-Api-Key: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    expect_span: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  negatives: []
 - rule_id: credentials.url_encoded_bearer_token
   positives:
-  - text_b64: s2b9UGdhR3cmcDO5oVWYNjMxMmYh9VZ2lGbft2cwITJyVmchVmQ9gGd1F2PrNWYixGbhN2L0NXZ05SZsBXbhhXZuAHch9yL6MHc0RHa
-    expect_span_b64: cDO5oVWYNjMxMmYh9VZ2lGbft2c
-  negatives_b64: []
+  - text: https://app.example.test/callback?auth=Bearer%20sk_live_abc123XYZ987&state=ok
+    expect_span: sk_live_abc123XYZ987
+  negatives: []
 - rule_id: credentials.nested_json_api_key
   positives:
-  - text_b64: 0Xf91XfiYTNmVENzQ2YCFkMx8Velt2Xk9mcw9VbmJiOikXZrJye6ISawFmI7pjIoRXdh1CeisnOiMnclRWYlhmI7pjI0NXZ1FXZyJye
-    expect_span_b64: 2UjZFRzMkNmQBJTMflXZr9FZvJHcf1mZ
-  negatives_b64: []
+  - text: '{"request":{"headers":{"x-auth":{"api":{"key":"fm_prod_key_12ABcd34Ef56"}}}}}'
+    expect_span: fm_prod_key_12ABcd34Ef56
+  negatives: []
 - rule_id: credentials.asana-client-id.gl
   positives:
   - text_b64: wOiETMxETMxETMxETMxETMxEjIg0DIkl2X05WZpx2YfFmbhNXY
     expect_span_b64: QMxETMxETMxETMxETMxETM
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.asana-client-secret.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ACdlJ3YlN3X05WZpx2YfFmbhNXY
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.azure-ad-client-secret.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh5XUxEWYhJCI9ACdlJ3YlN3X05WZpx2YfRWYfVmc1pXY
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY-FVMhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.bitbucket-client-id.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ACZp9FduVWasN2X0V2ajVnY0lmY
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.bitbucket-client-secret.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPgQXZyNWZz9FduVWasN2X0V2ajVnY0lmY
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.db_connection
   positives:
-  - text_b64: ISYAFWYhpTYv8iOMF1UFJ1RUN1TQJSPMJVVfV0UBJUQUFER
-    expect_span_b64: EGQhFWY6E2LvoDTRNVRSdEVT9EU
-  negatives_b64: []
+  - text: DATABASE_URL="POSTGRESQL://a:aaa@a"
+    expect_span: POSTGRESQL://a:aaa@a
+  negatives: []
 - rule_id: credentials.digitalocean-refresh-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XxY1XS9ERiASPg4WZr9Gdfh2clJnZlJ3XuFWZj9GbhRXanlGZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XxY1XS9ER
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.discord-client-id.gl
   positives:
   - text_b64: sjIxETMxETMxETMxETMxETMxETMiASPgQWafRnbllGbj9FZy92YzlGZ
     expect_span_b64: xETMxETMxETMxETMxETMxETM
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.discord-client-secret.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI0VmcjV2cfRnbllGbj9FZy92YzlGZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.facebook-secret.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI0VmcjV2cft2bvJWZjFmZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.finicity-client-secret.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ACdlJ3YlN3X05WZpx2YflHdpNWaulmZ
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.github-oauth.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYh91bodmIg0DIoRXdh92XiVHa0l2Z
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2Xvh2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.github-refresh-token.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2Xyh2ZiASPg4WZr9Gdfh2clJnZlJ3XiVHa0l2Z
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2Xyh2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.gitlab-oauth-app-secret.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtMXYvx2ZiASPgQXZyNWZz9FcwF2XoRXdh92XiFGb0l2Z
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtMXYvx2Z
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.gitlab-session-cookie.gl
   positives:
   - text_b64: lJXdjV2UgszL9gGdhBFI7EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY942bpN3clN3XiFGb0l2ZfBiOll2av92Q
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.hashicorp-tf-password.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ACZy92dzNXYw9lbpd2bs9lcvRXYyR3cp5WatRWY
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.http_auth_basic
   positives:
-  - text_b64: QP9EWYhFWYhFWYgMWazFmQgojbvlGdhpXay9Ga0VXQ
-    expect_span_b64: QP9EWYhFWYhFWY
-  negatives_b64: []
+  - text: 'Authorization: Basic aaaaaaaa=='
+    expect_span: aaaaaaaa==
+  negatives: []
 - rule_id: credentials.http_auth_bearer
   positives:
-  - text_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFGIyVmchVmQgojbvlGdhpXay9Ga0VXQ
-    expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  - text: 'Authorization: Bearer aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    expect_span: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  negatives: []
 - rule_id: credentials.intra42-client-secret.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLkVnM0RzctMnIg0DI0VmcjV2cfRnbllGbj9lM0Emc05Wa
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYtQWdyQHNz1yc
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.jwt-base64.gl
   positives:
   - text_b64: ISP9EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWVhBFbykFSKdUYLxGWaJCI9ACN2U2chJ2X0dna
     expect_span_b64: 0TPhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhVVYQxmMZhkSHF2SshlW
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.jwt.gl
   positives:
   - text_b64: 0TPhFWYhFWYhFWYh5SYhFWYhFWYhFWYhFWYhFWYhlXZuEWYhFWYhFWYhFWYhFWYhFWY5VGIyVmchVmQgojbvlGdhpXay9Ga0VXQ
     expect_span_b64: QP9EWYhFWYhFWYhFmLhFWYhFWYhFWYhFWYhFWYhFWel5SYhFWYhFWYhFWYhFWYhFWYhlXZ
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.linear-client-secret.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPgQXZyNWZz9FduVWasN2XyFWZulGb
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.linkedin-client-id.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFmIg0DIkl2X05WZpx2Yf5WakV2aulGb
     expect_span_b64: EWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.linkedin-client-secret.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhJCI9ACdlJ3YlN3X05WZpx2Yf5WakV2aulGb
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.looker-client-id.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhJCI9ACZp9FduVWasN2XyV2av9Gb
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.looker-client-secret.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiASPgQXZyNWZz9FduVWasN2XyV2av9Gb
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.messagebird-client-id.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWLhFWYh1SYhFWYtEWYhFWLhFWYhFWYhFmIg0DIkl2X05WZpx2YfRmcpJWZnF2czVWb
     expect_span_b64: hFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.nats_connection
   positives:
-  - text_b64: IiMyIDN6wWYuJXZ05WauMHdh5GQhFWY6QnbllGbj9yL6MHdh5mI9wkUV91UUFkT
-    expect_span_b64: yIjM0oDbh5mclRnbp5yc0FmbAFWYhpDduVWasN2Lvozc0Fmb
-  negatives_b64: []
+  - text: NATS_URL="nats://client:aaa@nats.internal:4222"
+    expect_span: nats://client:aaa@nats.internal:4222
+  negatives: []
 - rule_id: credentials.new-relic-user-api-id.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DIkl2XpBXYfJXZzV3XjlGblJ3X3Vmb
     expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.nuget-config-password.gl
   positives:
   - text_b64: 4jbvlGdhJXdnlmZu92YvwjPzxWYpRnblRWZyNUZjJXdvNVZnF2ajFGcvwjPiVHa0l2ZvwjPvAiI4hHe4hHe4hnI9UWdsFmdgICZy92dzNXYQRHelRlchVGbDJSP5V2agQGZhxjPiVHa0l2Z84zcsFWa05WZkVmcDV2YyV3bTV2Zht2YhBHP-42bpRXYyV3ZpZmbvNGP
     expect_span_b64: gHe4hHe4hHe
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.oauth_body_secret
   positives:
-  - text_b64: 0nIzxWYpRnblRWZyN2X05WZpx2YiojIlBXe09FduFmcnJCLiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYiojI0VmcjV2cfRnbllGbjJye
-    expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  - text: '{"client_secret":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","grant_type":"client_credentials"}'
+    expect_span: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  negatives: []
 - rule_id: credentials.oauth_query_secret
   positives:
-  - text_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY94WZr9GdfN3clN2YhZybtVGZ9QWafRnbllGbj9zajFmYsxWYj9CdzVGduUGbw1WY4VmLoRXdh9yL6MHc0RHa
-    expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  - text: https://auth.example.test/callback?client_id=demo&access_token=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+    expect_span: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  negatives: []
 - rule_id: credentials.password
   positives:
-  - text_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFGI6Qmcvd3czFGc
-    expect_span_b64: QYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  - text: 'password: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    expect_span: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  negatives: []
 - rule_id: credentials.plaid-client-id.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DIkl2X05WZpx2YfRWahxGc
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.planetscale-oauth-token.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XoRXdh92XlxWYjNHciASPg4WZr9GdfhGd1F2bfVGbhN2c0VmbhxGc
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XoRXdh92XlxWYjNHc
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.planetscale-password.gl
   positives:
   - text_b64: wOiEWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XXB1XFxUQDNFUiASPgQmcvd3czFGcfVGbhN2c0VmbhxGc
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XXB1XFxUQDNFU
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.redis_connection
   positives:
-  - text_b64: iEGQhFWY68yL6M1UJRURSJSPMJVVfNVSEVkU
-    expect_span_b64: hBUYhFmOv8iOTNVSEVkU
-  negatives_b64: []
+  - text: REDIS_URL="REDISS://:aaa@a"
+    expect_span: REDISS://:aaa@a
+  negatives: []
 - rule_id: credentials.sendbird-access-id.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWLhFWYh1SYhFWYtEWYhFWLhFWYhFWYhFmIg0DIkl2XzNXZjNWYfRmcpJGZuV2c
     expect_span_b64: hFWYhFWYhFWYhFWYtEWYhFWLhFWYh1SYhFWYtEWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.shopify-shared-secret.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhF2XzNHcoNnIg0DI0VmcjV2cfRWZyFGaz9VemlGcvh2c
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYfN3cwh2c
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.sidekiq-secret.gl
   positives:
   - text_b64: iEWYhFWYhFWY6EWYhFWYhFWYi0TTPN0XfNVWTJUSSRlTPN0XfV0UJJFUSVEVOV0XFxEROVlQ
     expect_span_b64: EWYhFWYhFWY6EWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.sidekiq-sensitive-url.gl
   positives:
   - text_b64: wLt92YuMXezJWayRnbvNmLz1WZnBUYhFWYhFWYhpTYhFWYhFWYh9yL6MHc0RHa
     expect_span_b64: t92YuMXezJWayRnbvNmLz1WZnBUYhFWYhFWYhpTYhFWYhFWYh9yL6MHc0RHa
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.slack-config-refresh-token.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLx0SRY9EWiASPg4WZr9Gdfh2clJnZlJ3XnlmZu92Yft2Yhx2c
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWLx0SRY9EW
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.sumologic-access-id.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWdzJCI9ACZp91czV2YjF2Xjl2Zvx2btV3c
     expect_span_b64: EWYhFWYhFWYhFWYhV3c
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.twitter-access-secret.gl
   positives:
   - text_b64: 7ISYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI0VmcjV2cfN3clN2Yh9lclRHdpdHd
     expect_span_b64: hFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.twitter-api-secret.gl
   positives:
   - text_b64: sjIhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFmIg0DI0VmcjV2cflGch9lclRHdpdHd
     expect_span_b64: EWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWYhFWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.url_with_creds
   positives:
-  - text_b64: 7ISYAFWYhpTYv8iOTBFVUhkIg0DIsJXdft2YhJGbsF2Y
-    expect_span_b64: hBUYhFmOh9yL6MFUURFS
-  negatives_b64: []
+  - text: callback_url = "HTTPS://a:aaa@a";
+    expect_span: HTTPS://a:aaa@a
+  negatives: []
 - rule_id: credentials.curl-auth-header.gl
   positives:
   - text_b64: ACdzVGduUGbw1WY4V2LvozcwRHdoBiI90zdaVHbHRmeWdEZgMWazFmQgojbvlGdhpXay9Ga0VXQiACStACbyV3Y
@@ -1219,7 +1250,7 @@ cases:
     expect_span_b64: g2ZmVGZjJWY
   - text_b64: gQ3clRnLlxGctFGel9yL6MHc0RHagcCanZWZkNmYhBiO5V2StkGcB1CWnACStACbyV3Y
     expect_span_b64: g2ZmVGZjJWY
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.curl-auth-user.gl
   positives:
   - text_b64: gQ3clRnLlxGctFGel9yL6MHc0RHagICZy92dzNXYwpjclNXdiASdtACbyV3Y
@@ -1228,300 +1259,300 @@ cases:
     expect_span_b64: AZy92dzNXYwpjclNXd
   - text_b64: AI0NXZ05SZsBXbhhXZv8iOzBHd0hGIkJ3b3N3chBnOyV2c1BSdtACbyV3Y
     expect_span_b64: AZy92dzNXYwpjclNXd
-  negatives_b64: []
+  negatives: []
 - rule_id: credentials.kubernetes-secret-yaml.gl
   positives:
   - text_b64: oQP9cWYwhmMa1mVHplaKdVWgojblt2b0BCIKoTY0FGZK8WblRGI6UWbh5GIgogOhRXYkFGdl1mC0VmcjV2UgoDZul2aKEjdgojbvl2cyVmVpBXY
     expect_span_b64: QP9cWYwhmMa1mVHplaKdVW
   - text_b64: owbtVGZgoTZtFmbgAiC6EGdhRWY0VWbKQXZyNWZTBiOk5WarpQP9cWYwhmMa1mVHplaKdVWgoDZy92dzNXYwBCIKoTY0FGZKEjdgojbvl2cyVmVpBXY
     expect_span_b64: QP9cWYwhmMa1mVHplaKdVW
-  negatives_b64: []
+  negatives: []
 - rule_id: ip-addrs.ipv4
   positives:
-  - text_b64: gjL44COugTPwl2X05WZpx2Y
-    expect_span_b64: AOugjL44CO
-  negatives_b64: []
+  - text: client_ip=8.8.8.8
+    expect_span: 8.8.8.8
+  negatives: []
 - rule_id: ip-addrs.ipv4-cidr
   positives:
-  - text_b64: QjMvAjL44COugTPyRWaj9FZld3bsxWY
-    expect_span_b64: ANy8CMugjL44CO
-  negatives_b64: []
+  - text: allowed_cidr=8.8.8.0/24
+    expect_span: 8.8.8.0/24
+  negatives: []
 - rule_id: ip-addrs.ipv4-private
   positives:
-  - text_b64: wMuIjLx4CMx0Dcp9VZ0FmdpJHc
-    expect_span_b64: MjLy4SMuATM
-  negatives_b64: []
+  - text: private_ip=10.1.2.3
+    expect_span: 10.1.2.3
+  negatives: []
 - rule_id: ip-addrs.ipv4-public
   positives:
-  - text_b64: QjL04COugTPwl2XjlGbiVHc
-    expect_span_b64: ANuQjL44CO
-  negatives_b64: []
+  - text: public_ip=8.8.4.4
+    expect_span: 8.8.4.4
+  negatives: []
 - rule_id: ip-addrs.ipv6
   positives:
-  - text_b64: 0FO4gDO6ADMwAjOwADMwoDMwADM6ADMwAjOwYDO0oDM2gDN6EDMwIzW9Yjdwl2X05WZpx2Y
-    expect_span_b64: 4gDO4oDMwADM6ADMwAjOwADMwoDMwADM6AjN4QjOwYDO0oTMwAjM
-  negatives_b64: []
+  - text: client_ipv6=[2001:4860:4860:0000:0000:0000:0000:8888]
+    expect_span: 2001:4860:4860:0000:0000:0000:0000:8888
+  negatives: []
 - rule_id: ip-addrs.ipv6-cidr
   positives:
-  - text_b64: 0YzL4gDO4oDMwADM6ADMwAjOwADMwoDMwADM6AjN4QjOwYDO0oTMwAjM9IHZpN2X2YHcp9FZld3bsxWY
-    expect_span_b64: 0YzL4gDO4oDMwADM6ADMwAjOwADMwoDMwADM6AjN4QjOwYDO0oTMwAjM
-  negatives_b64: []
+  - text: allowed_ipv6_cidr=2001:4860:4860:0000:0000:0000:0000:8888/64
+    expect_span: 2001:4860:4860:0000:0000:0000:0000:8888/64
+  negatives: []
 - rule_id: ip-addrs.ipv6-private
   positives:
-  - text_b64: dFDMwAjOwADMwoDMwADM6ADMwAjOwADMwoDMwADM6ADMwAjOwADZmtVP2YHcp9VZ0FmdpJHc
-    expect_span_b64: xADMwoDMwADM6ADMwAjOwADMwoDMwADM6ADMwAjOwADMwoDMwQmZ
-  negatives_b64: []
+  - text: private_ipv6=[fd00:0000:0000:0000:0000:0000:0000:0001]
+    expect_span: fd00:0000:0000:0000:0000:0000:0000:0001
+  negatives: []
 - rule_id: ip-addrs.ipv6-public
   positives:
-  - text_b64: 0FN0gDO6ADMwAjOwADMwoDMwADM6ADMwAjOwYDO0oDM2gDN6EDMwIzW9Yjdwl2XjlGbiVHc
-    expect_span_b64: 0QDO4oDMwADM6ADMwAjOwADMwoDMwADM6AjN4QjOwYDO0oTMwAjM
-  negatives_b64: []
+  - text: public_ipv6=[2001:4860:4860:0000:0000:0000:0000:8844]
+    expect_span: 2001:4860:4860:0000:0000:0000:0000:8844
+  negatives: []
 - rule_id: pii.docs.inn-org
   positives:
-  - text_b64: MTO4MDOwcDM3cDI6gL04CthRDL03CNuQ3L0wC9sQDY0-CNIdCdnQjJ0
-    expect_span_b64: wM5gzM4AzNwczN
-  negatives_b64: []
+  - text: 'ИНН организации: 7707083893'
+    expect_span: '7707083893'
+  negatives: []
 - rule_id: pii.docs.inn-person
   positives:
-  - text_b64: kTNyIzM3ADMxADM1AiOwCthRjL07C9tQjL0EGNIdCdnQjJ0
-    expect_span_b64: 5UjMyMzNwATMwATN
-  negatives_b64: []
+  - text: 'ИНН физлица: 500100732259'
+    expect_span: '500100732259'
+  negatives: []
 - rule_id: pii.docs.ogrn
   positives:
-  - text_b64: UTOxIzMxADM3cjMwEDI60J0gC9kQ7J0
-    expect_span_b64: QN5EjMzEDMwczNyATM
-  negatives_b64: []
+  - text: 'ОГРН: 1027700132195'
+    expect_span: '1027700132195'
+  negatives: []
 - rule_id: pii.docs.ogrnip
   positives:
-  - text_b64: cTNxADMwYTMxADM1QDMzAiOfCNmQ3J0gC9kQ7J0
-    expect_span_b64: 3UTMwADM2ETMwATN0AzM
-  negatives_b64: []
+  - text: 'ОГРНИП: 304500116000157'
+    expect_span: '304500116000157'
+  negatives: []
 - rule_id: pii.docs.snils
   positives:
-  - text_b64: UTOgUDN00yMzITLyETMgoToQvJ0YCdnQHK0
-    expect_span_b64: UTOgUDN00yMzITLyETM
-  - text_b64: UTOgUDN00yMzITLyETM
-    expect_span_b64: UTOgUDN00yMzITLyETM
-  - text_b64: UTOgUDN0AyMzIDIyETM
-    expect_span_b64: UTOgUDN0AyMzIDIyETM
-  - text_b64: 1kDI1QDNzMjMyETM
-    expect_span_b64: 1kDI1QDNzMjMyETM
-  - text_b64: UTO1QDNzMjMyETM
-    expect_span_b64: UTO1QDNzMjMyETM
-  - text_b64: gL1CtgRzY0AGdtQLL0-CNgR_L0gwSN5ASN0QDIzMjMgITMxASoQvJ0YCdnQHK0
-    expect_span_b64: UTOgUDN0AyMzIDIyETM
-  - text_b64: 0nI1kDI1QDNtMzMy0iMxEjI6IycslmbzJye
-    expect_span_b64: UTOgUDN00yMzITLyETM
-  negatives_b64:
-  - YTOgUDN00yMzITLyETM
+  - text: 'СНИЛС: 112-233-445 95'
+    expect_span: 112-233-445 95
+  - text: 112-233-445 95
+    expect_span: 112-233-445 95
+  - text: 112 233 445 95
+    expect_span: 112 233 445 95
+  - text: 112233445 95
+    expect_span: 112233445 95
+  - text: '11223344595'
+    expect_span: '11223344595'
+  - text: СНИЛС 112 233 445 95, проверьте.
+    expect_span: 112 233 445 95
+  - text: '{"snils":"112-233-445 95"}'
+    expect_span: 112-233-445 95
+  negatives:
+  - 112-233-445 96
 - rule_id: pii.docs.passport
   positives:
-  - text_b64: YTN0MjMxASOwUDNgIY0AGtvQ_L0BGNsQ_L0
-    expect_span_b64: YTN0MjMxASOwUDN
-  - text_b64: YTN0MjMxASOwUDNgIY0AGtvQ_L0BGNsQ_L0
-    expect_span_b64: YTN0MjMxASOwUDN
-  - text_b64: 2UDNzITMgkDMgUDNgIY0AGtvQ_L0BGNsQ_L0
-    expect_span_b64: 2UDNzITMgkDMgUDN
-  - text_b64: 2UDNzITMgAY01CNvQ7L09CNI5ATN0AyjRjL0AGdtQHY0
-    expect_span_b64: gN1QzMyEDIAGdtQzL0-CdvQDSOwUDN
-  - text_b64: 2UDNzITMgYJhiDSOwASN0AyjRjL0AGdtQHY0
-    expect_span_b64: gN1QzMyEDIWSo4gkDMgUDN
-  - text_b64: 0L0wCNtQvY0yCNIsYTN0MjMxASOwUDNg8Y04CNgRXL0BGNI6IY0AGtvQ_L0BGNsQ_L0
-    expect_span_b64: YTN0MjMxASOwUDN
-  - text_b64: AL08CdtQLY0BGNuQHY0gUDNxgjMzASOwYDNg8DvQ7L0CGNgR7L0_CdgRDL0_CNI8CNuQ7L08CNIBGNI6CNsQLY0
-    expect_span_b64: UDNxgjMzASOwYDN
-  - text_b64: 4Y0wCNtQbL0AGdtQLL0CGNtQ7L0_CNI2UDNzITM4ETN0AiO1C9iR3L09CNsQTL0gUL0LGdvQLY0AGtvQ_L0BGNsQ_L0
-    expect_span_b64: gN1QzMyEDOxUDN
-  - text_b64: AjR3L01C9hR7J0g4CO3YTN0MDIyEDI3cDIDGtgRDY0-C9vQHY0wC9vQDivQ_L0gAL06CtsQ7L0AGNuQrL0-C9uQHL0
-    expect_span_b64: 4cjN1QzMgITMgczN
-  - text_b64: wgRfY0-CdhRDCL4cjN1QzMyEDM1AigRDY0-C9vQHY0wC9vQDCjRLY04CNtQDY01CtsQLY00CtvQ_L0gMY0zCtvQzL0
-    expect_span_b64: AO3YTN0MjMxATN
-  negatives_b64:
-  - gN1QzMyETOwUDN
-  - yCtvQLY0-C9sQDiN1QzMyETOwUDNgAL03CNsQrL0wC9tQDCgRXL08CtvQ3L0
-  - QvQXL07CNvQDY0-CNhR7L0ggzN2UDNzITMwUDIAGdtQzL0-CdvQDytQDL06CNsQfL0
+  - text: паспорт 4509 123456
+    expect_span: 4509 123456
+  - text: паспорт 4509 123456
+    expect_span: 4509 123456
+  - text: паспорт 45 09 123456
+    expect_span: 45 09 123456
+  - text: серия 4509 номер 123456
+    expect_span: 4509 номер 123456
+  - text: серия 45 09 № 123456
+    expect_span: 45 09 № 123456
+  - text: 'паспорт: серия 4509 123456, выдан'
+    expect_span: 4509 123456
+  - text: так с моим паспортом? 4609 328145 система
+    expect_span: 4609 328145
+  - text: 'паспортные данные: 4518123456 подтверждаю'
+    expect_span: '4518123456'
+  - text: блокировка по паспорту 77 12 345678. Очень
+    expect_span: 77 12 345678
+  - text: могу подтвердить паспорт 5012345678, хочу
+    expect_span: '5012345678'
+  negatives:
+  - '4509123456'
+  - номер заказа 4509123456 готов
+  - заказ номер 5012345678 оформлен
 - rule_id: pii.email
   positives:
-  - text_b64: QbvNmLlxGctFGelBEdzVGdrUWbh5mLu92cyVGcgoDbpFWblBiclNXd
-    expect_span_b64: QbvNmLlxGctFGelBEdzVGdrUWbh5mLu92cyVGc
-  negatives_b64: []
+  - text: 'user email: person.name+test@example.com'
+    expect_span: person.name+test@example.com
+  negatives: []
 - rule_id: pii.fin.credit-card
   positives:
-  - text_b64: ISMxETMgETMxEDIxETMxASMxEDNiASPgIXZi1Wdu9FZyF2Y
-    expect_span_b64: QMxETMgETMxEDIxETMxASMxEDN
-  negatives_b64: []
+  - text: card_number = "4111 1111 1111 1111"
+    expect_span: 4111 1111 1111 1111
+  negatives: []
 - rule_id: pii.fin.credit-card.context
   positives:
-  - text_b64: AL0AGdtQfY0yCNI4gzN3AiN2UTNgETM4MDI5cjM0AStQLY0AGNsQrL0g4L0_CNIwCtgRDL07C9vQ7L0
-    expect_span_b64: AO4czNgYjN1UDIxEDOzASO3IDN
-  - text_b64: AsQvL0IGtvQDY0_CNI0MjMxACM5gzNgYTN0MDIwAjMyAStQLY0AGNsQrL0g4L0_CNIwCtgRDL07C9vQ7L0
-    expect_span_b64: ANzITMgATO4cDI2UDNzACMwIjM
-  - text_b64: kXYk9GdggDO3cDI2YTN1ASMxgzMgkzNyQDIkJXYjBCZldmchh2Y
-    expect_span_b64: AO4czNgYjN1UDIxEDOzASO3IDN
-  negatives_b64:
-  - 9CdtQ3L07CtvQ_L0LGtsQDCNzITMgATO4cDI2UDNzACMwIjMgQL0-CtsQXL0AGdtQ_L0
-  - 1CNgRLY0BGdtQXL0AGNIyCNIyEDM5gzN2UDNzITM1ACsQLY0AGNsQrL0
-  - AuQvL0wCNtQbL0DGdgRHL0-CNI2YTN1ACN0MzMgIjMxEDIwAjMyAygRvL01CNtQDivQ_L0gwY07CdtQLY0AGNsQrJ0
-  - wgRrL0yCNsQLY0BGtvQTL0gAL09CNI9CdtQvL08CNgR7L0EGtvQDiMxATO4cjN1QzMyEDMwIDNgcL0wCtuQDL03CNI1CtgRDY0wCtuQDivQ_J0
+  - text: оплата по карте 4279 3811 5566 7788 вчера
+    expect_span: 4279 3811 5566 7788
+  - text: оплата по карте 2200 3456 7890 1234 прошла
+    expect_span: 2200 3456 7890 1234
+  - text: charged card 4279 3811 5566 7788 today
+    expect_span: 4279 3811 5566 7788
+  negatives:
+  - перевод 2200 3456 7890 1234 выполнен
+  - карта 5123456789012 в реестре
+  - Картель по делу 2200 1122 3344 5566 обсуждали
+  - По карте заказ 4200123456789012 оформлен на доставку
 - rule_id: pii.fin.iban
   positives:
-  - text_b64: iIzMgQTN2cDI4kjN1ACNzITMgQ1UFdFIygjQHJCI9AibhJWaflnchl2YpZWZuVmY
-    expect_span_b64: yMDI0UjN3ACO5YTNgQzMyEDIUNVRXBiM4I0R
-  negatives_b64: []
+  - text: beneficiary_iban = "GB82 WEST 1234 5698 7654 32"
+    expect_span: GB82 WEST 1234 5698 7654 32
+  negatives: []
 - rule_id: pii.phone-ru
   positives:
-  - text_b64: iETMtETMtETMx0SKxETMo0yNrICI9ASZu9Gaw9FdjFGdu92Y
-    expect_span_b64: xETLxETLxETMtkSMxEDKtczK
-  - text_b64: 3YTN0MjMxkTO5czK
-    expect_span_b64: 3YTN0MjMxkTO5czK
-  - text_b64: cjNtUDNtMjMxASK5kTOoACO
-    expect_span_b64: cjNtUDNtMjMxASK5kTOoACO
-  - text_b64: cjN1QzMyETO5kzNrAiL7CdtQLY0
-    expect_span_b64: 3YTN0MjMxkTO5czK
-  - text_b64: 0nI3YTN0MjMxkTO5gjI6ISZu9GawJye
-    expect_span_b64: cjN1QzMyETO5kDO
-  - text_b64: QtQLY04CdvQ7L0yC9tQ7L0_CNIscjN1QzMyETO5kDO
-    expect_span_b64: cjN1QzMyETO5kDO
-  negatives_b64:
-  - cjN1QzMyETO5kDOyETN
-  - 4cjN1QzMyETO5kDO
+  - text: contact_phone = "+7-(111)-111-11-11"
+    expect_span: +7-(111)-111-11-11
+  - text: '+79991234567'
+    expect_span: '+79991234567'
+  - text: 8 (999) 123-45-67
+    expect_span: 8 (999) 123-45-67
+  - text: тел. +79991234567
+    expect_span: '+79991234567'
+  - text: '{"phone":"89991234567"}'
+    expect_span: '89991234567'
+  - text: 89991234567, позвоните
+    expect_span: '89991234567'
+  negatives:
+  - '51289991234567'
+  - '899912345678'
 - rule_id: pii.fio-ru
   positives:
-  - text_b64: gLPG9uQ7Y04CNI1EDIUCo4gAL0CGNuQfL04CtsQDCsQLY0wCNtQDCLwCdvQLL01CdtQPL0AGdtQHK0gAL09CdvQDJ0gAL0yCtvQ3L0AGNuQzL0hCNI6oL0BG9gR_L0-CNgR_L0gAL09CNIwCtuQLL0PGNsQfJ0
-    expect_span_b64: AL09CtsQXL01C9sQDY01CdoQDCsQ3L09CNkQDCsQLL0-CdvQDY04CNvQHK0
-  - text_b64: 1AyuQ7L0CGdgRDCLwCdvQLL01CdtQPL0AGdtQHK0gAL09CdvQDJ0gAL0yCtvQ3L0AGNuQzL0hCNIPG9uQTL0goL0BG9gR_L0-CNgR_L0
-    expect_span_b64: AL09CtsQXL01C9sQDY01CdoQDCsQ3L09CNkQDCsQLL0-CdvQDY04CNvQHK0
-  - text_b64: 8Y09CNtQ7L0zCdtQHY0gIL0-CNgR7L00CNuQHK0gcY04CtsQ7L0AGtgRXL0fCNI9CNsQLL0YCNI9CNsQLL0-CNgRjL00CdvQDL08CtvQrL0
-    expect_span_b64: gsQ7L0AGtvQTL04CdoQDyhRjL0yCtvQDY0CGdtQ_J0g0L0wCtsQjJ0
-  - text_b64: gLHGNuQLL0-CdvQDL0yCNmQDCgRLY0RG9nQDisQ7L0GGdtQ3L03C9gRrJ0goDjRvL01CtgRjL09C9uQ7L0_CdgRjL0
-    expect_span_b64: HGNuQLL0-CdvQDL0yCNmQDCgRLY0RG9nQDisQ7L0GGdtQ3L03C9gRrJ0
-  - text_b64: AsQLY0PGdvQjL0AG9vQDCsQ3L0HGNuQ3L04CNjRvL0YCNIPGNuQDY0wCNnQDCsQ3L04CNvQ7L0kCNIMG9uQXL0CGNuQLL0PGNsQfL0
-    expect_span_b64: wCdvQfY04CdvQjL0MG9uQjJ0g8Y04CNgRDL0cCNIwCdvQjL08CtvQTK0
-  - text_b64: CGNuQ_L0DGtgRHY0LGtsQDCsQ3L0yCdtQXL0zCNgRXL0hCNIwCdvQ3L0QCNIwCdvQjL06CNtQ7L0SCdLwCtsQ7L0AGtgRXL0fCNI6CNuQfY00CNsQvL06CtvQTL0
-    expect_span_b64: wCdvQLL01CdtQPL0AGdtQHK0gAL09CdvQDJ0gAL09CNuQrL00CtvQLJ0tAL0yCtvQDY0CGdtQ_J0
-  - text_b64: guQHY0DG9vQ7L0AG9vQDCsQvL04CNvQDY0-CNhR7L0gAL09CtsQXL01C9sQDY01CdoQDCsQ3L09CNkQDCsQLL0-CdvQDY04CNvQHK0
-    expect_span_b64: AL09CtsQXL01C9sQDY01CdoQDCsQ3L09CNkQDCsQLL0-CdvQDY04CNvQHK0
-  - text_b64: wuQjL0AGdtQLL0-CNgR_L0gcY04CNjRvL0YCNI9CNsQLL0YCNI9CNuQzL0MG9tQPY0aCNIAGdtQLY0BGNsQzL0
-    expect_span_b64: whRjL0MG9uQjJ0g0L0wCtsQjJ0g0L04CNvQzY03C9gRrJ0
-  - text_b64: -CdvQXL0HG9gRvL0-C9vQDyiR3L0yCdtQXL0zCNgRXL0hCNILGdvQ3L0QCNI5CtvQLL0-CdvQDY04CNvQHK0gIY0-CNI1CNuQ3L01C9uQLL0PGNsQfL0
-    expect_span_b64: wiR3L0yCdtQXL0zCNgRXL0hCNILGdvQ3L0QCNI5CtvQLL0-CdvQDY04CNvQHK0
-  - text_b64: 6CdgRPY0_CtvQDY0_CNIDG9hRjL0yCtvQ3L0wCtsQjJ0gMY09CNsQLL0YCNIDGtsQ7L09CNsQLL0YCNIMGtgRDL00C9iRLL0
-    expect_span_b64: MY0HGNuQLL0-CdvQDL0yCNmQDygR3L0wCtsQjJ0gMY0yCtvQ3L0wCtsQjJ0
-  - text_b64: wCNgRXL0HGtsQDCvQXL0HGNuQLL0-CdvQDL0yCNmQDCvQ7L0AGtgRXL0fCNI8C9iRLL0-CthRXL09C9tQPY0aCNI-CdvQDL0BGNuQ_L00CtvQ_L0
-    expect_span_b64: 8CdtQfY04CtsQ7L09CNsQLL0YCNI8CtvQDY0CGdtQ_J0gwL0LGtsQ7L0GGdtQ3L03C9gRrJ0
-  - text_b64: sY09CdtQ3L0HGtvQLY0DGNI1CdvQLL01CdtQPL0AGdtQHK0gUL0zCNjRvL0eCNI5CtvQLL0-C9uQLL0wC9nQDivQDyjRjL09CdtQTL01CtsQHY0
-    expect_span_b64: QtQ3L0yCdtQXL0zCNgRXL0hCNI1C9sQzY07CtnQDSuQ7L0yCtvQvL0yCNsQ_J0
-  - text_b64: MG9uQXL0CGNuQLY01CdgR7L0_CNIUCo4gAJ0dCtkQXJ0VC9kQDK0VCdoQDCkQ3J0dCNkQDCkQLJ0eCdnQDK0YCNnQHK0
-    expect_span_b64: AJ0dCtkQXJ0VC9kQDK0VCdoQDCkQ3J0dCNkQDCkQLJ0eCdnQDK0YCNnQHK0
-  - text_b64: zAyuQ7L0CGdgRDCLnCNmQLJ0eCdnQDJ0SCNmQDSnQDJ0SCNmQDikQ7J0dCNkQLJ0YCNI6oL0BG9gR_L0-CNgR_L0
-    expect_span_b64: cK0YCtkQ7J0dCNkQLJ0YCNIdCNkQLJ0YCNISCtnQ3J0QCtkQjJ0
-  negatives_b64:
-  - 1CdgRjL0EGtvQDisQDCsQLL0-CdvQDY04CNvQHK0gAL09CdvQDJ0gEY0gAL0HGdtQDY0CGdgRLL0
-  - 7CNsQjL07CNuQTY0g4L07C9iRDY06CtgR7L0gAL0yCtuQHY0-CNnQDCsQrL0IGNsQzL0-CNoQDivQLL0CGdgRXL0JGdsQ7J0
-  - wCdvQXL07CNvQDY0-CNhR7L0goL0BG9gR_L0-CNgR_J0gAL0dCNIwCtuQLL0PGNsQfJ0
-  - sL0wCNuQvL04CNhRDivQvL0LGNgRrL0CGtvQDCkQLK0rC9nQ7J0aCNIYCNIQC9kQ7J0gCNIeCtnQ7J0
-  - 8Y09CNtQ7L0zCdtQHY0goJ0hC9oQ_J0eCNoQ_J0gwK0iCNmQzJ0gCtnQTK0eCNIeCdnQfK0eCNoQHK0
+  - text: 'Заявка на пропуск: Смирнова Анна Сергеевна, дата визита — 15 июля.'
+    expect_span: Смирнова Анна Сергеевна
+  - text: пропуск для Смирнова Анна Сергеевна, стол 5
+    expect_span: Смирнова Анна Сергеевна
+  - text: командирован Иван Петрович Сидоров сегодня
+    expect_span: Иван Петрович Сидоров
+  - text: 'исполнитель: Кузнецов Пётр Иванович.'
+    expect_span: Кузнецов Пётр Иванович
+  - text: заявитель Фомина Мария Ильинична принята
+    expect_span: Фомина Мария Ильинична
+  - text: докладчик Петрова-Водкина Анна Сергеевна выступит
+    expect_span: Петрова-Водкина Анна Сергеевна
+  - text: Смирнова Анна Сергеевна оформила пропуск
+    expect_span: Смирнова Анна Сергеевна
+  - text: мастер Кузьмин Иван Ильич проверил
+    expect_span: Кузьмин Иван Ильич
+  - text: заявление от Смирновой Анны Сергеевны получено
+    expect_span: Смирновой Анны Сергеевны
+  - text: выдать Иванову Ивану Ивановичу пропуск
+    expect_span: Иванову Ивану Ивановичу
+  - text: подписано Кузнецовым Петром Ивановичем вчера
+    expect_span: Кузнецовым Петром Ивановичем
+  - text: сведения о Павловой Ольге Сергеевне уточнены
+    expect_span: Павловой Ольге Сергеевне
+  - text: СМИРНОВА АННА СЕРГЕЕВНА — посетитель
+    expect_span: СМИРНОВА АННА СЕРГЕЕВНА
+  - text: 'пропуск: ИВАНОВ ИВАН ИВАНОВИЧ, стол 3'
+    expect_span: ИВАНОВ ИВАН ИВАНОВИЧ
+  negatives:
+  - встреча с Анна Смирнова в офисе
+  - Общество Ромашка Москва открыло филиал
+  - Заявка На Пропуск оформлена
+  - ООО РОГА И КОПЫТА открыло филиал
+  - СРОЧНО ОФОРМИТЬ ПРОПУСК сегодня
 - rule_id: pii.fio-ru.initials
   positives:
-  - text_b64: 4CNxAigRXL09CNuQHL0wCtuQDCLuEK0uAJ0gAL0yCtvQ3L0AGNuQzL0hCNI6kL0LGdvQ3L01CtsQLY0BGtgRXL0yCtgR7J0
-    expect_span_b64: 4SoQ7CkQDCsQLL0-CdvQDY04CNvQHK0
-  - text_b64: IY04CtvQLY0BGNIuEK0uAJ0gAL0yCtvQ3L0AGNuQzL0hCNI6wY0BGNuQ_L00CtvQ_L0
-    expect_span_b64: 4SoQ7CkQDCsQLL0-CdvQDY04CNvQHK0
-  - text_b64: ggRXL0wC9hRXL0yCtgR7L0g4CmQDiLfCNIyCtvQbY01CdvQfL0DGtmQDCjRvL01CtgRjL09C9uQ7L0_CdgRjL0
-    expect_span_b64: ugJ0g4ynQDisQ7L0GGdtQ3L03C9gRrJ0
-  - text_b64: ggRXL0wC9vQPY0CGdgRvY0yCNIwCtsQ7L09CNgRjL08CdoQDiLhCtLQCNI6CNuQfY00CNsQvL06CtvQTL0
-    expect_span_b64: AL0yCtvQ3L0AGNuQzL0hCNIuEK0uAJ0
-  - text_b64: wCNgRXL0HGtsQDisQ7L09CNsQLL0YCNIugJ0g4CmQDyuQjL00CNgRXL0yCtgRPY0
-    expect_span_b64: IL0-CdvQDL0yCNmQDiLYCNIugJ0
-  - text_b64: 0L0wCNtQvY0yCNIuEK0uAJ0gAJ0SCtnQ3J0gCNmQzJ0hCNI6oL0BG9gR_L0-CNgR_L0
-    expect_span_b64: 4SoQ7CkQDCkQLJ0eCdnQDK0YCNnQHK0
-  - text_b64: AL09CNsQfL0wCtuQPY0g4SoQ7CkQDCsQ3L04CtuQTL0-CtkQ3CsQLL0-CNgRLY01C9nQDCgR7L0CGtsQDL0
-    expect_span_b64: uEK0uAJ0gAL09CNuQrL00CtvQLJ0tAL0yCtvQDY0CGdtQ_J0
-  - text_b64: 4L0CG9jR3L04CNgR_L0g4SoQ7CkQDSuQ7L0yCtvQ3L0AGNuQzL0hCNI1CNuQ3L01C9uQLL0PGNsQfL0
-    expect_span_b64: gLhCtLQCNI5CtvQLL0-CdvQDY04CNvQHK0
-  negatives_b64:
-  - AsQDY0-CtsQ7L0zCtvQTL0g4CkQDigRrL09C9gR_L0g4CvQHY0
-  - UTkQDigRHY04C9uQDCuQDCNQCNICGNsQzL0AGtvQTY0
-  - IY0LGNgRrL0wC9tQDSgR7L0AG9vQ7L0yCNIuUL0uIY0
+  - text: 'Ответственный: Смирнова А.С., кабинет 14.'
+    expect_span: Смирнова А.С.
+  - text: 'подпись: Смирнова А.С. стоит'
+    expect_span: Смирнова А.С.
+  - text: исполнитель Кузнецов П. И. отвечает
+    expect_span: Кузнецов П. И.
+  - text: докладчик А.С. Смирнова выступает
+    expect_span: А.С. Смирнова
+  - text: утвердил И. И. Иванов вчера
+    expect_span: И. И. Иванов
+  - text: 'пропуск: СМИРНОВА А.С. выдан'
+    expect_span: СМИРНОВА А.С.
+  - text: автор Петрова-Водкина А.С. указана
+    expect_span: Петрова-Водкина А.С.
+  - text: заявление Смирновой А.С. принято
+    expect_span: Смирновой А.С.
+  negatives:
+  - см. пункт А. договора
+  - формат А4 и лист Б5
+  - т.е. вопрос закрыт
 - rule_id: pii.fio-ru.short
   positives:
-  - text_b64: 1CdgRjL0EGtvQDisQDCsQLL0-CdvQDY04CNvQHK0gAL09CdvQDJ0gEY0gAL0HGdtQDY0CGdgRLL0
-    expect_span_b64: AsQLL0-CdvQDY04CNvQHK0gAL09CdvQDJ0
-  - text_b64: 1CdgRjL0EGtvQDisQDCsQLL0-CdvQDY04CNvQHK0gAL09CdvQDJ0gEY0gAL0HGdtQDY0CGdgRLL0
-    expect_span_b64: AsQLL0-CdvQDY04CNvQHK0gAL09CdvQDJ0
-  - text_b64: 1CtgRHY01CNvQDCsQ3L0gAL09CdvQDJ0gAL0yCtvQ3L0AGNuQzL0hCNI6CNuQ3L00C9gRDY0CGtvQHY0
-    expect_span_b64: AsQ3L09CNkQDCsQLL0-CdvQDY04CNvQHK0
-  - text_b64: DG9hRXL0AGtgRHY0yCNIwCdvQDygRLL0-CdvQDY04CNvQHK0gMY09CdvQDJ0ggL07CNuQHY0wC9uQPL04CNgR_L0
-    expect_span_b64: wgRLL0-CdvQDY04CNvQHK0gMY09CdvQDJ0
-  - text_b64: 4L09C9hRjL07CNIyCtvQbY01CdvQfL0DGtmQDSvQDL0yCNmQDSvQDL00CdtQDY01C9vQDytQDL06CNsQfL0
-    expect_span_b64: gsQ7L0GGdtQ3L03C9gRrJ0g0L0wCtsQjJ0
-  - text_b64: wY0BGNuQvL0wCtgRHY0-CNIwCtsQ7L0GGdtQ3L03C9gRrJ0gAL09CNsQLL0YCNIDGNILGtgR3L01CNvQPY06CtvQTL0
-    expect_span_b64: AL0yCtvQbY01CdvQfL0DGtmQDCsQ3L0wCtsQjJ0
-  - text_b64: wjR3L00CtvQPL01CdgRDisQXL0wC9uQ7L06CNuQ3J0gAY0CGdkR_J0gIY04CNgRPY02CdtQTL0
-    expect_span_b64: gsQXL0wC9uQ7L06CNuQ3J0gAY0CGdkR_J0
-  - text_b64: wC9uQjL0CGdtQLL0CGtvQDiuQPY0WCNIPGNuQDY0wCNnQDCgRXL02CNtQXL09CdtQzL0
-    expect_span_b64: oL0DGtlQDyjRjL0AGNsQzJ0
-  - text_b64: UL0CGdgRXL08CNIwCdvQDyjRjL0AGNsQzJ0g8Y0wC9uQXL0RCNI6CNuQ3L00C9gRDY0CGtvQHY0
-    expect_span_b64: PGNuQDY0wCNnQDyjRDL07CdtQHJ0
-  - text_b64: wC9uQjY04CNgR_L0gAL09CdvQDJ0g8Y0wCtuQHY0yCdtQ7L0CGdgR7L0UCNIMG9uQXL0CGNuQLL0PGNsQfL0
-    expect_span_b64: AsQ3L09CNkQDyjRDL06CdgRLL01CtvQLY0BGtvQTJ0
-  - text_b64: AsQDY01C9hRLL0g4L06CdvQXL0HGtsQXL0oCNI9CNsQLL0YCNI7CNuQ3L0-CtsQfL0
-    expect_span_b64: gvQrL09CdtQfY0yCdtQjK0g0L0wCtsQjJ0
-  - text_b64: QtQLY04CNtQ7L0FGtvQDY0_CNIsAL09CtsQXL01C9sQDY01CdoQDCsQ3L09CNkQDCL1CtgRnL0DGtsQLY0BGtsQDL0AGNtQfJ0
-    expect_span_b64: wCdvQLL01CdtQPL0AGdtQHK0gAL09CdvQDJ0
-  negatives_b64:
-  - PGdgRvL04CtsQDL0AG9vQLY0-CNIyCtvQLY0BGtvQDK0gAL0yCtuQHY0-CNnQDCtQfL01CtvQ_L0
-  - 8Y09CNtQ7L0zCdtQHY0gAL0CG9iRDY06CNsQfL0gwY00CNsQnY0-C9uQ_J0g8Y0wCdvQHY0wCNgRrJ0
-  - wjRHY07CNsQDY0xCtvQHY0ggL04CthRDL0AGdtQTL01CNpQDigRXL0yCtvQHK0
-  - wC9uQXL0yCtvQDY0_CNIPGNuQzL0AGNkQDyjRDL09CdgRDL0AGtmQDCtQDL0AGNsQ_L0
-  - 8Y09CNtQ7L0zCdtQHY0gAL0CG9iRDY06CNsQfL0gAL09C9jRvL0-C9nQDyjRDL09CdgR_K0
+  - text: встреча с Анна Смирнова в офисе
+    expect_span: Анна Смирнова
+  - text: встреча с Анна Смирнова в офисе
+    expect_span: Анна Смирнова
+  - text: сотрудник Смирнова Анна на месте
+    expect_span: Смирнова Анна
+  - text: пригласили Анну Смирнову на встречу
+    expect_span: Анну Смирнову
+  - text: заказ передан Иван Кузнецов лично
+    expect_span: Иван Кузнецов
+  - text: документы у Ивана Кузнецова остались
+    expect_span: Ивана Кузнецова
+  - text: дежурит Пётр Николаев сегодня
+    expect_span: Пётр Николаев
+  - text: менеджер Мария Жук ответила
+    expect_span: Мария Жук
+  - text: сотрудник Белая Мария на месте
+    expect_span: Белая Мария
+  - text: заявитель Достоевская Анна пришла
+    expect_span: Достоевская Анна
+  - text: звонил Иван Шевченко вчера
+    expect_span: Иван Шевченко
+  - text: Здравствуйте, Анна Сергеевна, проходите
+    expect_span: Анна Сергеевна
+  negatives:
+  - поезд Москва Ростов отправился
+  - Красная Площадь закрыта сегодня
+  - Совет Федерации собрался
+  - парад Красная Армия провела
+  - Ясная Поляна закрыта сегодня
 - rule_id: pii.docs.kpp
   positives:
-  - text_b64: gvQ3L0wC9tQDL06C9gRDSMwAzM0UjM3cDI_C9vQrL0gUY0wCtgRjL03CNuQLL06CdtQDY0gIL0
-    expect_span_b64: xADMzQTNyczN
-  - text_b64: 1CNgR7L0yCtvQPL0-CNtQDisQDSMwAzM0UjM3cDI_C9vQrL0
-    expect_span_b64: xADMzQTNyczN
-  - text_b64: AsQDCLxADM1QzMzczNgUL0AG9gRLY06CNsQTY0tUL0CGdtQfY0BGNIyCNI_C9vQrL0
-    expect_span_b64: xADM1QzMzczN
-  negatives_b64:
-  - IL0-CtgR7L0zCNIxADMzQTNyczNgAL03CNsQrL0wC9tQDCgRXL08CtvQ3L0
+  - text: в реквизитах кпп 772543001 указано
+    expect_span: '772543001'
+  - text: кпп 772543001 в договоре
+    expect_span: '772543001'
+  - text: кпп в счете-фактуре 773345001, а
+    expect_span: '773345001'
+  negatives:
+  - номер заказа 772543001 готов
 - rule_id: pii.docs.address
   positives:
-  - text_b64: AsQDY0CGtsQDL03CNI1EDIPGNsQrL0BGNgRXL0yCtoQDiL7C9gRDCLwCtsQrL0BGtvQzJ0g4ysQDCsQ3L0gcL0wCtuQDL03CNI1CtgRjL03CdtQLL04CNgR_L0
-    expect_span_b64: QNxAyjRDL06CdgRDY01CtsQLK0g4yuQPY0gwCsQLL06CdgR7L0cCNIuML0
-  - text_b64: AsQDY0CGtsQDL03CNI1EDIPGNsQrL0BGNgRXL0yCtoQDiL7C9gRDCLwCtsQrL0BGtvQzJ0g4ysQDCsQ3L0gcL0wCtuQDL03CNIDGNtQbL0
-    expect_span_b64: QNxAyjRDL06CdgRDY01CtsQLK0g4yuQPY0gwCsQLL06CdgR7L0cCNIuML0
-  - text_b64: 1CtgRnL0wCttQfL01CNuQDY0_CNI1QDIyCtuQDyMyACsQ3L04CNgRDL0zCNsQPJ0g4yuQPY0goTgRXL0AGNtQDL0
-    expect_span_b64: 1QDIyCtuQDyMyACsQ3L04CNgRDL0zCNsQPJ0g4yuQPY0
-  - text_b64: wjR3L00CtvQPL01CdgRDCO4AigRrL01C9vQHY0-CNgR_L0gkL04CtuQHY0yCdtQ3J0gAL09CNIDGNtQbL0
-    expect_span_b64: AO4AigRrL01C9vQHY0-CNgR_L0gkL04CtuQHY0yCdtQ3J0
-  - text_b64: gMxACsQDY04CtgRDY0wCtsQrL0gwSN0ACvQ7L00CNIsIY06CdtQ_L0BGtvQDY0_CNI5CNuQrL0BGNtQDL0AG9sQ3L04CdvQXL0bCNIwCdvQDytQDL06CNsQfL0
-    expect_span_b64: yEDIwCNgRjL0CGNgRDL0yCtuQDCL1QDI8CtvQTL0gwigRrL01C9vQHY0-CNgR_L0gkL04CtuQHY00CNsQDY0zCdvQjL09CdtQvJ0
-  - text_b64: wL0-CNgRXL0HGdtQLL0ggzNgIL06CNI0QDIwCtsQ7L0FGdtQfK0gMY06CtsQDL0CGdgR7L00CNIDGNtQbL0
-    expect_span_b64: gzNgIL06CNI0QDIwCtsQ7L0FGdtQfK0
-  - text_b64: IY0DGtgRDiMgQL03CdtQrY00CtvQ_L0gYTNxAyjRDL06CdgRLL0-CtuQHY0-CNnQDSgRXL0AGNtQDL0
-    expect_span_b64: IDI0C9tQXL0KGNtQ7L0_CNI2UTMg8Y0wCtuQHY0yCtvQrL0BGtvQzJ0
-  - text_b64: wjR3L00CtvQPL01CdgRDSO0AyjRDL0yCtvQXY0DGNvQXL0AGdtQfK0g4yuQvL0wCNIDGNtQbL0
-    expect_span_b64: 5QDIPGNsQLL0-CdhRPY08CdtQDY01C9pQDiL7C9uQDL0
-  - text_b64: UL0CGduQDL02C9tQXL04CNgR_L0gMDIyCtuQDiMxAisQ7L0CGdgRDL04C9tQPY0CGdvQ3K0g4CiRDSgRXL0AGNtQDL0
-    expect_span_b64: zAisQrL0gITMgIL0-CtgRHY0wCNuQfL0DGtgR3L0tCNIugY0
-  negatives_b64:
-  - wjRHY07CNuQfY09CtvQrL0wC9tQDiMxATO4cDIwCNgRDL0yCtvQLY0gsL0DGtuQjL0CGNgRDL0
-  - wuQvY0xCNuQDY0_CNIyCtvQLY0BGtvQDK0gAL0yCtuQHY0-CNnQDCtQfL01CtvQ_L0
-  - AL0AGtgRLL0wC9tQDSNg4isQrL0gYjNg8Y0wCtsQ7L0BGtvQrL04CNgRHL0wCNIuEL0wCdvQDCsQrL0yCNsQLY0BGtvQTL0
-  - 1CtgRXL08CdgRDisQDiNg4isQrL0ggTMgAL0AGtvQTL04CNgR7L06CNI4CNI4CdvQXY0DGtuQDiL7C9vQDyjRDL0JGdsQ7J0
-  - sY09CNsQTL01CNgRXL0_CNI0ASgRjL0EGtvQDCL3ACuQjL0GGNuQfL0-C9vQDiLAG9vQDCuQDCsQrL04CdvQXY01CtgRDCLMG9uQXL0xCdtQzJ0
-  - AtQ_Y0AGNtQ7L0_CNIwCdgRDL0HGNIyACuQvL0PG9uQPY0zCNI1CthRjL07C9gRDivQ_L0
+  - text: привезите заказ на г. Москва, ул. Тверская 15 завтра
+    expect_span: г. Москва, ул. Тверская 15
+  - text: жду заказ на г. Москва, ул. Тверская 15 завтра
+    expect_span: г. Москва, ул. Тверская 15
+  - text: 'адрес: ул. Гагарина 23 кв 45 приезжайте'
+    expect_span: ул. Гагарина 23 кв 45
+  - text: жду на Невский проспект 88 сегодня
+    expect_span: Невский проспект 88
+  - text: заказ на Ленинградский проспект, дом 45, квартира 12
+    expect_span: Ленинградский проспект, дом 45, квартира 12
+  - text: жду доставку Чехова 44 кв 78 вечером
+    expect_span: Чехова 44 кв 78
+  - text: адрес Московская 156 подъезд 2 тут
+    expect_span: Московская 156 подъезд 2
+  - text: жду алл. Черемуховая 49 сегодня
+    expect_span: алл. Черемуховая 49
+  - text: адрес ш. Энтузиастов 12 кв 3 приезжайте
+    expect_span: ш. Энтузиастов 12 кв 3
+  negatives:
+  - артикул товара 789012 закончился
+  - поезд Москва Ростов прибыл
+  - доставка наб. абрикосовая 66 кв. 5 завтра
+  - Общая пл. кухни и коридора 18 кв. 6 в смете
+  - Мебель, техника и пр. позиции 7, офис 4 переданы
+  - по улице гуляли 2 часа подряд
 - rule_id: pii.fin.cvc
   positives:
-  - text_b64: wjRDL0HGtvQHL0wCNgRDCsQLY0AGNsQrL0g8Y0CGtvQXY0gwiN1QDIjZ3YgIY01CNsQzL04CdvQjL0AG9vQDStQ3L0gAL08CdtQLY0BGNuQHY0
-    expect_span_b64: 2UDN
-  - text_b64: AL08CdtQLY0BGNuQHY0g4L09CNIsgDM0AyuQvY0xCNIBGtsQbY0
-    expect_span_b64: 4ADN
-  - text_b64: sY0CGNsQvL0_CtvQDyjRvL00CNI5gzNgMmdjBSvQXL02C9gR3L0
-    expect_span_b64: 5gzN
-  - text_b64: UL0CGNuQTL01CtsQLL0gQzNyAyiRLY0AGNsQrL0gUL0CGtvQDY0-CdsQ7L0gAL09CNI0CtvQrL0
-    expect_span_b64: 0cjM
-  negatives_b64:
-  - QO4cDI0CtvQrL0gIY01CNsQzL04CdvQjL0AG9vQDStQ3L0gAL08CdtQLY0BGNuQHY0
-  - wiR3L0AGdtQLL01CdvQDyMyEDIPG9uQ7L0AGNsQ_L0gsY0AGNhRjL0GGNI4CNgRLY0
+  - text: система не принимает cvc 456, хотя карта рабочая
+    expect_span: '456'
+  - text: цвс был 408, но система
+    expect_span: '408'
+  - text: нужен cvc 789 для оплаты
+    expect_span: '789'
+  - text: код на обороте карты 274 введите
+    expect_span: '274'
+  negatives:
+  - система не принимает код 789
+  - три цифры пароля 123 неверны
