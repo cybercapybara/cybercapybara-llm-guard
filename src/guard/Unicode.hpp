@@ -69,9 +69,8 @@ inline bool is_ascii(std::string_view s) {
 inline std::string to_lower_utf8(std::string_view s) {
     if (detail::is_ascii(s)) {
         std::string out(s);
-        std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) {
-            return static_cast<char>(std::tolower(c));
-        });
+        for (char& c : out)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
         return out;
     }
 
