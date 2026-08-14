@@ -187,8 +187,18 @@ TEST(GuardMasker, ParallelEqualsSerialAcrossParallelMinBytesThreshold) {
     // A repeated field (dedup stress) plus enough padding that combined
     // bytes clear the default 8192-byte auto-parallel gate, with >= 2 texts.
     for (int i = 0; i < 40; ++i) {
-        texts.push_back("padding " + std::string(200, 'x') + " user" + std::to_string(i % 5) + "@example.com card " +
-                        std::to_string(4000000000000000 + (i % 3)));
+        // Built via separate `+=` steps rather than one long chained
+        // expression: GCC 13 at -O3 mis-derives an out-of-bounds SSO-buffer
+        // access (-Werror=array-bounds) when std::to_string results feed
+        // straight into a multi-operator std::string concatenation chain
+        // that's then passed directly to push_back.
+        std::string text = "padding ";
+        text += std::string(200, 'x');
+        text += " user";
+        text += std::to_string(i % 5);
+        text += "@example.com card ";
+        text += std::to_string(4000000000000000L + (i % 3));
+        texts.push_back(std::move(text));
     }
     std::size_t total = 0;
     for (const auto& t : texts)
