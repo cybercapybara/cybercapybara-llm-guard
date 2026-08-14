@@ -127,8 +127,8 @@ TEST(GuardValidatorsFormats, ShannonEntropy) {
     EXPECT_DOUBLE_EQ(Guard::shannon_entropy(""), 0.0);
     EXPECT_DOUBLE_EQ(Guard::shannon_entropy("aaaa"), 0.0);
     EXPECT_DOUBLE_EQ(Guard::shannon_entropy("abcd"), 2.0);
-    EXPECT_NEAR(Guard::shannon_entropy("\xd0\xb0\xd0\xb1\xd0\xb2\xd0\xb3"), 2.0, 1e-6);   // "абвг"
-    EXPECT_NEAR(Guard::shannon_entropy("\xd1\x8f\xd1\x8f\xd1\x8f\xd1\x8f"), 0.0, 1e-6);   // "яяяя"
+    EXPECT_NEAR(Guard::shannon_entropy("\xd0\xb0\xd0\xb1\xd0\xb2\xd0\xb3"), 2.0, 1e-6);  // "абвг"
+    EXPECT_NEAR(Guard::shannon_entropy("\xd1\x8f\xd1\x8f\xd1\x8f\xd1\x8f"), 0.0, 1e-6);  // "яяяя"
 }
 
 TEST(GuardValidatorsFormats, ShannonEntropyNonPowerDistribution) {

@@ -138,27 +138,33 @@ inline std::string snils_checksum(std::string_view nine_digits) {
 
 inline std::pair<char, char> inn_person_checksums(std::string_view ten_digits) {
     auto d = [&](std::size_t i) { return ten_digits[i] - '0'; };
-    const int v1 = ((7 * d(0) + 2 * d(1) + 4 * d(2) + 10 * d(3) + 3 * d(4) + 5 * d(5) + 9 * d(6) + 4 * d(7) +
-                     6 * d(8) + 8 * d(9)) %
-                    11) %
-                   10;
+
+    static constexpr std::array<int, 10> kWeights1{7, 2, 4, 10, 3, 5, 9, 4, 6, 8};
+    int sum1 = 0;
+    for (std::size_t i = 0; i < 10; ++i)
+        sum1 += d(i) * kWeights1[i];
+    const int v1 = (sum1 % 11) % 10;
+
     std::array<int, 11> digits{};
     for (std::size_t i = 0; i < 10; ++i)
         digits[i] = d(i);
     digits[10] = v1;
-    static constexpr std::array<int, 11> kWeights{3, 7, 2, 4, 10, 3, 5, 9, 4, 6, 8};
-    int sum = 0;
+    static constexpr std::array<int, 11> kWeights2{3, 7, 2, 4, 10, 3, 5, 9, 4, 6, 8};
+    int sum2 = 0;
     for (std::size_t i = 0; i < 11; ++i)
-        sum += digits[i] * kWeights[i];
-    const int v2 = (sum % 11) % 10;
+        sum2 += digits[i] * kWeights2[i];
+    const int v2 = (sum2 % 11) % 10;
+
     return {static_cast<char>('0' + v1), static_cast<char>('0' + v2)};
 }
 
 inline char inn_org_checksum(std::string_view nine_digits) {
     auto d = [&](std::size_t i) { return nine_digits[i] - '0'; };
-    const int checksum =
-        ((2 * d(0) + 4 * d(1) + 10 * d(2) + 3 * d(3) + 5 * d(4) + 9 * d(5) + 4 * d(6) + 6 * d(7) + 8 * d(8)) % 11) %
-        10;
+    static constexpr std::array<int, 9> kWeights{2, 4, 10, 3, 5, 9, 4, 6, 8};
+    int sum = 0;
+    for (std::size_t i = 0; i < 9; ++i)
+        sum += d(i) * kWeights[i];
+    const int checksum = (sum % 11) % 10;
     return static_cast<char>('0' + checksum);
 }
 
@@ -506,8 +512,9 @@ inline Utf8Decoded decode_utf8(std::string_view s, std::size_t i) {
         const int c2 = cont(i + 2);
         if (c1 < 0 || c2 < 0)
             return {0xFFFD, 1};
-        const auto cp = static_cast<char32_t>(((c0 & 0x0Fu) << 12) | (static_cast<unsigned>(c1) << 6) |
-                                               static_cast<unsigned>(c2));
+        const unsigned hi = (c0 & 0x0Fu) << 12;
+        const unsigned mid = static_cast<unsigned>(c1) << 6;
+        const auto cp = static_cast<char32_t>(hi | mid | static_cast<unsigned>(c2));
         if (cp < 0x800)
             return {0xFFFD, 1};
         return {cp, 3};
@@ -518,8 +525,10 @@ inline Utf8Decoded decode_utf8(std::string_view s, std::size_t i) {
         const int c3 = cont(i + 3);
         if (c1 < 0 || c2 < 0 || c3 < 0)
             return {0xFFFD, 1};
-        const auto cp = static_cast<char32_t>(((c0 & 0x07u) << 18) | (static_cast<unsigned>(c1) << 12) |
-                                               (static_cast<unsigned>(c2) << 6) | static_cast<unsigned>(c3));
+        const unsigned hi = (c0 & 0x07u) << 18;
+        const unsigned mid1 = static_cast<unsigned>(c1) << 12;
+        const unsigned mid2 = static_cast<unsigned>(c2) << 6;
+        const auto cp = static_cast<char32_t>(hi | mid1 | mid2 | static_cast<unsigned>(c3));
         if (cp < 0x10000 || cp > 0x10FFFF)
             return {0xFFFD, 1};
         return {cp, 4};
@@ -772,9 +781,22 @@ inline bool ip_private(std::string_view value) {
 
 inline bool is_known_validator(std::string_view name) {
     static const std::unordered_set<std::string_view> kKnown = {
-        "luhn",       "snils",       "inn_person",  "inn_org",   "ogrn",     "ogrnip",
-        "iban_mod97", "email_ascii", "payment_card", "payment_card_no_luhn", "entropy",
-        "banlist",    "ip_v4",       "ip_v6",       "ip_public", "ip_private",
+        "luhn",
+        "snils",
+        "inn_person",
+        "inn_org",
+        "ogrn",
+        "ogrnip",
+        "iban_mod97",
+        "email_ascii",
+        "payment_card",
+        "payment_card_no_luhn",
+        "entropy",
+        "banlist",
+        "ip_v4",
+        "ip_v6",
+        "ip_public",
+        "ip_private",
     };
     return kKnown.count(name) != 0;
 }
