@@ -1,11 +1,11 @@
 /**
  * @file PlaceholderRegex.hpp
- * @brief Tolerant placeholder-recognition regex builder, plus an RE2
- *        parse-tree walk that bounds the maximum byte length any given
- *        pattern can match.
+ * @brief Tolerant placeholder-recognition regex builder, plus a bounded-
+ *        subset regex length parser that bounds the maximum byte length any
+ *        given pattern can match.
  * @details Mirrors the Go reference's
  *          `pkg/guardrails/regex/registry/registry.go`
- *          (`buildDefaultPlaceholderRegexp`, `regexpMaxLen`) op-for-op:
+ *          (`buildDefaultPlaceholderRegexp`, `regexpMaxLen`):
  *            - `build_placeholder_pattern("EMAIL")` produces
  *              `(?i)<\s{0,3}EMAIL[\s_-]{0,3}([0-9]{1,9})\s{0,3}>` -- a
  *              tolerant recognizer for a masked placeholder like `<EMAIL_1>`
@@ -16,19 +16,16 @@
  *            - Multi-token names (e.g. "DB_DSN") split on `_`; the tokens
  *              are re-joined -- and separated from the trailing number -- by
  *              the same drift-tolerant `[\s_-]{0,3}` separator.
- *            - `regex_max_len` walks the *compiled RE2 parse tree*
- *              (`re2::Regexp::Parse`, not the pattern string -- a textual
- *              scan can't see through case-insensitive expansion or nested
- *              groups the way the parser already has) to compute a
- *              saturating upper bound on the byte length of any string the
- *              pattern can match. `SIZE_MAX` means "unbounded" (Go's
- *              internal sentinel is `-1`; Go's *public* `regexpMaxLen`
- *              additionally collapses "unparsable" into the same `0` it
- *              uses for "unbounded" since a signed `int` return can't spare
- *              a second sentinel -- our unsigned `SIZE_MAX` doesn't have
- *              that problem, but we still treat "unparsable" as "can't
- *              prove a bound" and report SIZE_MAX for it, matching the
- *              spirit of the Go sentinel).
+ *            - `regex_max_len` computes a saturating upper bound on the byte
+ *              length of any string a pattern can match. `SIZE_MAX` means
+ *              "unbounded" (Go's internal sentinel is `-1`; Go's *public*
+ *              `regexpMaxLen` additionally collapses "unparsable" into the
+ *              same `0` it uses for "unbounded" since a signed `int` return
+ *              can't spare a second sentinel -- our unsigned `SIZE_MAX`
+ *              doesn't have that problem, but we still treat "unparsable /
+ *              outside the supported subset" as "can't prove a bound" and
+ *              report SIZE_MAX for it, matching the spirit of the Go
+ *              sentinel).
  *            - `build_placeholder_pattern` throws
  *              `RuleError{Code::UnboundedPlaceholder}` if the template ever
  *              produced an unbounded pattern. This is defensive: the fixed
@@ -40,52 +37,52 @@
  *              time instead of silently shipping an unbounded SSE pending
  *              buffer.
  *
- *          Go `regexp/syntax` op -> RE2 `re2::Regexp` op mapping used by the
- *          parse-tree walk in `detail::regexp_op_max_len` (see that
- *          function's switch for the exact byte-length rule applied to each
- *          case):
- *
- *            Go syntax.Op                RE2 Regexp::op()
- *            --------------------------  ------------------------------------
- *            OpEmptyMatch                kRegexpEmptyMatch
- *            OpBeginLine / OpEndLine     kRegexpBeginLine / kRegexpEndLine
- *            OpBeginText / OpEndText     kRegexpBeginText / kRegexpEndText
- *            OpWordBoundary /            kRegexpWordBoundary /
- *              OpNoWordBoundary            kRegexpNoWordBoundary
- *            OpLiteral (1 rune)          kRegexpLiteral (`rune()`)
- *            OpLiteral (N runes)         kRegexpLiteralString
- *                                          (`runes()`/`nrunes()`) -- RE2
- *                                          splits what Go keeps as one op
- *                                          into two ops depending on rune
- *                                          count.
- *            OpCharClass                 kRegexpCharClass (`cc()`)
- *            OpAnyCharNotNL / OpAnyChar  kRegexpAnyChar -- RE2 has no
- *                                          "NotNL" variant at the tree
- *                                          level; without the DotNL flag the
- *                                          parser instead rewrites `.` into
- *                                          a CharClass excluding `\n`
- *                                          (`[0,\n) | (\n,0x10FFFF]`), which
- *                                          the CharClass case below already
- *                                          bounds to the same UTF-8 max (its
- *                                          upper range still reaches
- *                                          0x10FFFF).
- *            (none -- RE2-only)          kRegexpAnyByte (`\C`; matches
- *                                          exactly one byte)
- *            OpConcat                    kRegexpConcat (`sub()`/`nsub()`)
- *            OpAlternate                 kRegexpAlternate
- *            OpStar / OpPlus             kRegexpStar / kRegexpPlus
- *            OpQuest                     kRegexpQuest
- *            OpRepeat                    kRegexpRepeat (`min()`/`max()`)
- *            OpCapture                   kRegexpCapture (child `sub()[0]`)
- *            OpNoMatch                   kRegexpNoMatch (matches no string
- *                                          at all, so the bound is
- *                                          vacuously 0)
- *            (none -- RE2-only)          kRegexpHaveMatch (an RE2::Set-only
- *                                          internal marker `Regexp::Parse`
- *                                          never produces; treated as
- *                                          unbounded defensively, alongside
- *                                          any future op this switch doesn't
- *                                          yet know about)
+ *          IMPLEMENTATION NOTE -- why a hand-rolled parser instead of
+ *          walking RE2's own parse tree: the natural port of the Go
+ *          reference's `regexpMaxLen` (which walks `regexp/syntax`'s parsed
+ *          tree) is to walk RE2's equivalent internal tree via
+ *          `re2::Regexp::Parse` (declared in `re2/regexp.h`). That header is
+ *          RE2's *internal* API and is not installed by the vcpkg `re2`
+ *          port (confirmed by CI: `fatal error: re2/regexp.h: No such file
+ *          or directory`), so it isn't available to link against here.
+ *          `regex_max_len` instead hand-parses `pattern` itself with a small
+ *          recursive-descent parser (`detail::BoundedLengthParser`) over a
+ *          *restricted subset* of RE2/Perl regex syntax -- exactly the
+ *          subset `build_placeholder_pattern` generates, plus the ad-hoc
+ *          patterns this file's unit tests exercise. Go parity note: for
+ *          every pattern in that subset, this parser computes the same
+ *          answer `regexp/syntax`-based `regexpMaxLen` would (see the
+ *          per-construct comments on `BoundedLengthParser`'s methods for the
+ *          equivalence, e.g. "`{m,n}` == Go's `OpRepeat`"). Anything outside
+ *          the subset (backreferences, lookaround, `\p{...}` Unicode
+ *          property classes, malformed syntax such as an unclosed group or
+ *          a stray brace) is refused conservatively -- SIZE_MAX
+ *          ("unbounded"), never a crash and never an underestimate. The
+ *          supported subset, precisely:
+ *            - literal characters, including multibyte UTF-8 runes written
+ *              directly in the pattern (byte length = the rune's UTF-8
+ *              encoded length)
+ *            - backslash escapes: `\d \D \s \S \w \W` (RE2's Perl classes
+ *              are ASCII-only per RE2's own syntax docs, so 1 byte each),
+ *              `\b \B \A \z \Z` (zero-width anchors), `\n \t \r \f \v \a`
+ *              (1-byte control literals), and `\X` for any other character
+ *              X (a literal escaped char, e.g. what `RE2::QuoteMeta`
+ *              produces for `.` -> `\.`)
+ *            - character classes `[...]` / `[^...]`, including ranges
+ *              (`a-z`) -- bounded by the UTF-8 length of the widest member
+ *              or range endpoint
+ *            - groups `(...)`, non-capturing `(?:...)`, named `(?P<n>...)`,
+ *              and inline-flag forms `(?i)` / `(?i:...)` (flags themselves
+ *              don't affect length; `\p{...}`/`\P{...}` and lookaround
+ *              `(?=...)` `(?!...)` etc. are NOT supported -- refused)
+ *            - alternation `|` (bound = the longest branch)
+ *            - quantifiers `{m,n}` `{m}` (bound = n * operand, or m *
+ *              operand), `?` (bound = operand's own bound -- 0 vs 1 copy),
+ *              `*` `+` `{m,}` (SIZE_MAX unless the operand is zero-width,
+ *              in which case repeating it any number of times still adds
+ *              zero bytes); a trailing non-greedy `?` on any quantifier is
+ *              consumed and ignored (greediness doesn't affect the bound)
+ *            - anchors `^` `$` and `.` (any char, bounded by UTF-8 max)
  *
  *          Saturating arithmetic (`detail::sat_add`/`detail::sat_mul`) is
  *          used throughout so a pathological pattern (e.g. deeply nested
@@ -97,6 +94,7 @@
 
 #pragma once
 
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -104,7 +102,6 @@
 #include <vector>
 
 #include <re2/re2.h>
-#include <re2/regexp.h>
 
 #include "guard/Errors.hpp"
 
@@ -117,10 +114,12 @@ struct PlaceholderPattern {
 
 namespace detail {
 
+constexpr std::size_t kUtf8Max = 4;  // utf8.UTFMax
+
 // ---- saturating arithmetic over std::size_t ----------------------------
 // Clamp to SIZE_MAX ("unbounded") instead of wrapping. Order matters in
 // sat_mul: the zero check must come first so that "repeated zero times"
-// (an unbounded per-occurrence length times a Repeat max of 0) correctly
+// (an unbounded per-occurrence length times a repeat count of 0) correctly
 // collapses to a bounded 0, not SIZE_MAX.
 
 inline std::size_t sat_add(std::size_t a, std::size_t b) {
@@ -137,124 +136,344 @@ inline std::size_t sat_mul(std::size_t a, std::size_t b) {
     return a * b;
 }
 
-// UTF-8 byte length of a rune, mirroring Go's utf8.RuneLen. Returns 0 for a
-// negative or out-of-Unicode-range value (Go returns -1; this is unsigned
-// code so 0 -- never a valid RuneLen result for a real rune -- is the
-// "invalid" sentinel instead), letting callers fall back to the worst case.
-inline std::size_t rune_utf8_len(re2::Rune r) {
-    if (r < 0 || r > 0x10FFFF)
-        return 0;
-    if (r <= 0x7F)
-        return 1;
-    if (r <= 0x7FF)
-        return 2;
-    if (r <= 0xFFFF)
-        return 3;
-    return 4;
-}
+// Internal control-flow signal only: thrown by BoundedLengthParser wherever
+// it hits a construct outside the supported subset (see the file-level doc
+// comment), or malformed syntax (unclosed group, stray brace, truncated
+// escape...). Always caught inside regex_max_len -- never observable
+// outside this file.
+struct UnboundedSignal {};
 
-constexpr std::size_t kUtf8Max = 4;  // utf8.UTFMax
+// Recursive-descent parser over the restricted RE2/Perl regex subset
+// documented in the file-level comment. Computes a saturating upper bound,
+// in bytes, on the length of any string the pattern can match; throws
+// UnboundedSignal for anything it can't bound (unbounded repetition,
+// unsupported syntax, or malformed input) rather than guessing.
+//
+// Grammar (roughly, in the usual regex-engine shape):
+//   pattern      := alternation                     -- must consume all input
+//   alternation  := concat ('|' concat)*             -- bound = max of branches
+//   concat       := piece*                           -- bound = sum of pieces
+//   piece        := atom quantifier?
+//   atom         := '(' group_body ')' | '[' class ']' | '\' escape
+//                  | '^' | '$' | '.' | <literal rune>
+//   quantifier   := '*' | '+' | '?' | '{' m (',' n?)? '}'    (each '?'-suffixable)
+class BoundedLengthParser {
+public:
+    explicit BoundedLengthParser(const std::string& pattern) : s_(pattern), pos_(0) {}
 
-inline std::size_t rune_utf8_len_or_max(re2::Rune r) {
-    const std::size_t n = rune_utf8_len(r);
-    return n == 0 ? kUtf8Max : n;
-}
-
-// Mirrors Go's maxRuneLenInClass: a character class's byte-length bound is
-// the UTF-8 length of the single largest rune among its ranges (a wider
-// class only ever needs *more* bytes for its largest member, never fewer
-// for a smaller one, so scanning for the max hi is sufficient).
-inline std::size_t max_rune_len_in_class(re2::CharClass* cc) {
-    re2::Rune max_rune = 0;
-    for (auto it = cc->begin(); it != cc->end(); ++it) {
-        if (it->hi > max_rune)
-            max_rune = it->hi;
+    // Entry point. Throws UnboundedSignal if the pattern uses anything
+    // outside the supported subset, is malformed, or is unbounded.
+    std::size_t parse() {
+        const std::size_t n = parse_alternation();
+        if (pos_ != s_.size())
+            throw UnboundedSignal{};  // trailing unconsumed input: e.g. a stray ')'
+        return n;
     }
-    return rune_utf8_len_or_max(max_rune);
-}
 
-// Recursively computes the maximum byte length any string matched by `re`
-// (and everything under it) can have. SIZE_MAX means unbounded. See the
-// file-level doc comment for the Go-op -> RE2-op mapping this switch
-// implements. Patterns handled here (the placeholder template, and the
-// small ad-hoc patterns regex_max_len is unit-tested against) are shallow,
-// so plain recursion is used rather than re2::Regexp::Walker -- RE2's own
-// recommendation to prefer Walker exists to protect against adversarial,
-// deeply right-nested input like `x++++++++...`, which never arises here.
-inline std::size_t regexp_op_max_len(re2::Regexp* re) {
-    switch (re->op()) {
-        case re2::kRegexpEmptyMatch:
-        case re2::kRegexpBeginLine:
-        case re2::kRegexpEndLine:
-        case re2::kRegexpBeginText:
-        case re2::kRegexpEndText:
-        case re2::kRegexpWordBoundary:
-        case re2::kRegexpNoWordBoundary:
-        case re2::kRegexpNoMatch:
+private:
+    const std::string& s_;
+    std::size_t pos_;
+
+    bool at_end() const { return pos_ >= s_.size(); }
+    char peek() const { return at_end() ? '\0' : s_[pos_]; }
+
+    // Consumes and returns the UTF-8 byte length of the rune starting at
+    // pos_ (1-4 bytes), advancing past it. Used for un-escaped literal
+    // characters, including multibyte ones written directly in the pattern.
+    std::size_t consume_rune_len() {
+        if (at_end())
+            throw UnboundedSignal{};
+        const auto c = static_cast<unsigned char>(s_[pos_]);
+        std::size_t n = 1;
+        if ((c & 0xE0) == 0xC0)
+            n = 2;
+        else if ((c & 0xF0) == 0xE0)
+            n = 3;
+        else if ((c & 0xF8) == 0xF0)
+            n = 4;
+        if (pos_ + n > s_.size())
+            n = s_.size() - pos_;  // truncated multibyte sequence at end of string
+        pos_ += n;
+        return n;
+    }
+
+    // Go equivalent: OpAlternate -- bound is the longest branch, since
+    // exactly one branch is taken.
+    std::size_t parse_alternation() {
+        std::size_t best = parse_concat();
+        while (peek() == '|') {
+            ++pos_;
+            const std::size_t n = parse_concat();
+            if (n > best)
+                best = n;
+        }
+        return best;
+    }
+
+    // Go equivalent: OpConcat -- bound is the sum of every piece, since all
+    // are present in the match.
+    std::size_t parse_concat() {
+        std::size_t total = 0;
+        while (!at_end() && peek() != '|' && peek() != ')')
+            total = sat_add(total, parse_piece());
+        return total;
+    }
+
+    std::size_t parse_piece() { return parse_quantifier(parse_atom()); }
+
+    // RE2/Perl non-greedy marker: a '?' immediately following a quantifier
+    // (e.g. `a*?`) only changes greediness, not the bound -- consume and
+    // ignore it if present.
+    void skip_lazy_marker() {
+        if (peek() == '?')
+            ++pos_;
+    }
+
+    std::size_t parse_quantifier(std::size_t atom_len) {
+        if (at_end())
+            return atom_len;
+        const char c = peek();
+
+        // Go equivalent: OpStar / OpPlus -- unbounded unless the operand is
+        // zero-width, in which case repeating it any number of times still
+        // contributes zero bytes.
+        if (c == '*' || c == '+') {
+            ++pos_;
+            skip_lazy_marker();
+            return atom_len == 0 ? 0 : SIZE_MAX;
+        }
+        // Go equivalent: OpQuest -- 0 or 1 copies; the bound is just the
+        // operand's own bound (which already covers the "0 copies" case).
+        if (c == '?') {
+            ++pos_;
+            skip_lazy_marker();
+            return atom_len;
+        }
+        if (c == '{')
+            return parse_brace_quantifier(atom_len);
+        return atom_len;
+    }
+
+    // Go equivalent: OpRepeat -- {m}: exactly m copies; {m,n}: bounded by n
+    // copies; {m,}: unbounded unless the operand is zero-width. A '{' that
+    // doesn't form a valid quantifier (no digits, no closing '}') is NOT a
+    // quantifier at all; it's left unconsumed for the caller to reparse as
+    // the start of the next atom, where an unescaped '{' is refused (see
+    // parse_atom) -- outside the supported subset, so SIZE_MAX overall.
+    std::size_t parse_brace_quantifier(std::size_t atom_len) {
+        const std::size_t save = pos_;
+        ++pos_;  // consume '{'
+        std::string min_digits;
+        while (!at_end() && std::isdigit(static_cast<unsigned char>(peek())))
+            min_digits.push_back(s_[pos_++]);
+        bool has_comma = false;
+        if (peek() == ',') {
+            has_comma = true;
+            ++pos_;
+        }
+        std::string max_digits;
+        while (!at_end() && std::isdigit(static_cast<unsigned char>(peek())))
+            max_digits.push_back(s_[pos_++]);
+
+        if (min_digits.empty() || peek() != '}') {
+            pos_ = save;
+            return atom_len;
+        }
+        ++pos_;  // consume '}'
+        skip_lazy_marker();
+
+        if (!has_comma)
+            return sat_mul(parse_repeat_count(min_digits), atom_len);
+        if (max_digits.empty())
+            return atom_len == 0 ? 0 : SIZE_MAX;
+        return sat_mul(parse_repeat_count(max_digits), atom_len);
+    }
+
+    // Repeat counts in any pattern this parser supports are small (RE2
+    // itself caps them well below 2^31); a plain saturating decimal parse
+    // is sufficient.
+    static std::size_t parse_repeat_count(const std::string& digits) {
+        std::size_t v = 0;
+        for (char c : digits)
+            v = sat_add(sat_mul(v, 10), static_cast<std::size_t>(c - '0'));
+        return v;
+    }
+
+    std::size_t parse_atom() {
+        if (at_end())
+            throw UnboundedSignal{};
+        const char c = peek();
+        if (c == '(')
+            return parse_group();
+        if (c == '[')
+            return parse_char_class();
+        if (c == '\\')
+            return parse_escape();
+        // Go equivalent: OpBeginLine/OpEndLine (^/$) -- zero-width anchors.
+        if (c == '^' || c == '$') {
+            ++pos_;
             return 0;
-
-        case re2::kRegexpLiteral:
-            return rune_utf8_len_or_max(re->rune());
-
-        case re2::kRegexpLiteralString: {
-            std::size_t total = 0;
-            re2::Rune* runes = re->runes();
-            for (int i = 0; i < re->nrunes(); ++i)
-                total = sat_add(total, rune_utf8_len_or_max(runes[i]));
-            return total;
         }
-
-        case re2::kRegexpCharClass:
-            return max_rune_len_in_class(re->cc());
-
-        case re2::kRegexpAnyChar:
+        // Go equivalent: OpAnyCharNotNL/OpAnyChar -- bounded by UTF-8 max
+        // either way (see the file-level doc comment's note on RE2's '.').
+        if (c == '.') {
+            ++pos_;
             return kUtf8Max;
-
-        case re2::kRegexpAnyByte:
-            return 1;
-
-        case re2::kRegexpConcat: {
-            std::size_t total = 0;
-            re2::Regexp** subs = re->sub();
-            for (int i = 0; i < re->nsub(); ++i)
-                total = sat_add(total, regexp_op_max_len(subs[i]));
-            return total;
         }
+        // Structurally out of place here (an atom can't start with these) --
+        // most commonly a malformed quantifier's stray '{'/'}' left behind
+        // by parse_brace_quantifier, or an unmatched ']'/'*'/'+'/'?'.
+        if (c == '|' || c == ')' || c == '*' || c == '+' || c == '?' || c == '{' || c == '}' || c == ']')
+            throw UnboundedSignal{};
+        return consume_rune_len();  // plain literal character (possibly multibyte)
+    }
 
-        case re2::kRegexpAlternate: {
-            std::size_t longest = 0;
-            re2::Regexp** subs = re->sub();
-            for (int i = 0; i < re->nsub(); ++i) {
-                const std::size_t n = regexp_op_max_len(subs[i]);
-                if (n > longest)
-                    longest = n;
+    // Go equivalent: OpCapture (plain '(...)' and named '(?P<n>...)') or a
+    // transparent pass-through for '(?:...)' / '(?i)' / '(?i:...)' (flags
+    // don't change the bound; Go's syntax parser strips them before this
+    // point ever matters). Lookaround and other '(?...)' forms outside the
+    // supported subset are refused.
+    std::size_t parse_group() {
+        ++pos_;  // consume '('
+        if (peek() != '?') {
+            const std::size_t n = parse_alternation();
+            expect(')');
+            return n;
+        }
+        ++pos_;  // consume '?'
+        if (peek() == ':') {
+            ++pos_;
+            const std::size_t n = parse_alternation();
+            expect(')');
+            return n;
+        }
+        if (peek() == 'P' && pos_ + 1 < s_.size() && s_[pos_ + 1] == '<') {
+            pos_ += 2;  // "P<"
+            while (!at_end() && peek() != '>')
+                ++pos_;
+            expect('>');
+            const std::size_t n = parse_alternation();
+            expect(')');
+            return n;
+        }
+        // (?flags) or (?flags:...): consume the recognized flag letters
+        // (i s m U, optionally separated by a single '-' for on/off
+        // groups). Anything else here (lookahead '(?=' '(?!', lookbehind
+        // '(?<=' '(?<!', etc.) falls through and is refused below.
+        bool saw_flag = false;
+        while (!at_end() && (peek() == 'i' || peek() == 's' || peek() == 'm' || peek() == 'U' || peek() == '-')) {
+            ++pos_;
+            saw_flag = true;
+        }
+        if (saw_flag && peek() == ')') {
+            ++pos_;
+            return 0;  // (?i) etc: zero-width flag setter, not a group
+        }
+        if (saw_flag && peek() == ':') {
+            ++pos_;
+            const std::size_t n = parse_alternation();
+            expect(')');
+            return n;
+        }
+        throw UnboundedSignal{};
+    }
+
+    void expect(char c) {
+        if (peek() != c)
+            throw UnboundedSignal{};
+        ++pos_;
+    }
+
+    // Go equivalent: OpCharClass -- bound is the UTF-8 length of the widest
+    // single member (a literal char, an escape like \s, or the high end of
+    // an a-b range); a wider class only ever needs *more* bytes for its
+    // widest member, never fewer for a narrower one, so tracking the max is
+    // sufficient (mirrors Go's maxRuneLenInClass).
+    std::size_t parse_char_class() {
+        ++pos_;  // consume '['
+        if (peek() == '^')
+            ++pos_;
+        std::size_t widest = 0;
+        bool any_member = false;
+        while (true) {
+            if (at_end())
+                throw UnboundedSignal{};
+            if (peek() == ']') {
+                ++pos_;
+                break;
             }
-            return longest;
+            any_member = true;
+            std::size_t member_len = peek() == '\\' ? parse_escape() : consume_rune_len();
+            // 'a-z' style range: only when '-' is not immediately followed
+            // by ']' (which makes it a literal '-' instead).
+            if (peek() == '-' && pos_ + 1 < s_.size() && s_[pos_ + 1] != ']') {
+                ++pos_;  // consume '-'
+                const std::size_t hi_len = peek() == '\\' ? parse_escape() : consume_rune_len();
+                if (hi_len > member_len)
+                    member_len = hi_len;
+            }
+            if (member_len > widest)
+                widest = member_len;
         }
+        if (!any_member)
+            throw UnboundedSignal{};  // "[]" -- empty/malformed class
+        return widest;
+    }
 
-        case re2::kRegexpStar:
-        case re2::kRegexpPlus:
-            return SIZE_MAX;
-
-        case re2::kRegexpQuest:
-            return re->nsub() > 0 ? regexp_op_max_len(re->sub()[0]) : 0;
-
-        case re2::kRegexpRepeat: {
-            if (re->max() < 0)
-                return SIZE_MAX;
-            const std::size_t child = re->nsub() > 0 ? regexp_op_max_len(re->sub()[0]) : 0;
-            return sat_mul(static_cast<std::size_t>(re->max()), child);
+    // A backslash escape: either one of the recognized Perl class/anchor
+    // letters, or `\X` for a literal character X (what RE2::QuoteMeta
+    // produces for an escaped metacharacter, e.g. '.' -> "\.").
+    std::size_t parse_escape() {
+        ++pos_;  // consume '\\'
+        if (at_end())
+            throw UnboundedSignal{};
+        const char c = s_[pos_];
+        switch (c) {
+            case 'd':
+            case 'D':
+            case 's':
+            case 'S':
+            case 'w':
+            case 'W':
+                // RE2's Perl classes \d \s \w (and negations) are
+                // ASCII-only per RE2's syntax documentation: 1 byte each.
+                ++pos_;
+                return 1;
+            case 'b':
+            case 'B':
+            case 'A':
+            case 'z':
+            case 'Z':
+                ++pos_;
+                return 0;  // word boundary / text anchors: zero-width
+            case 'n':
+            case 't':
+            case 'r':
+            case 'f':
+            case 'v':
+            case 'a':
+                ++pos_;
+                return 1;  // single-byte control-character literal
+            case 'p':
+            case 'P':
+                // \p{...} / \P{...} Unicode property class: bounding this
+                // precisely needs a full Unicode property table, which is
+                // outside the supported subset -- refuse rather than guess.
+                throw UnboundedSignal{};
+            default:
+                return consume_rune_len();  // literal escaped char, e.g. "\."
         }
+    }
+};
 
-        case re2::kRegexpCapture:
-            return re->nsub() > 0 ? regexp_op_max_len(re->sub()[0]) : 0;
-
-        case re2::kRegexpHaveMatch:
-        default:
-            // Unrecognized or unhandled op: cannot prove a bound, so stay
-            // safe rather than guess. kRegexpHaveMatch specifically is an
-            // RE2::Set-only marker Regexp::Parse never produces.
-            return SIZE_MAX;
+// UTF-8 byte length of `pattern`'s match, or SIZE_MAX if unbounded / outside
+// the supported subset / malformed. See BoundedLengthParser above.
+inline std::size_t bounded_length(const std::string& pattern) {
+    try {
+        BoundedLengthParser parser(pattern);
+        return parser.parse();
+    } catch (const UnboundedSignal&) {
+        return SIZE_MAX;
     }
 }
 
@@ -308,27 +527,21 @@ inline std::string build_placeholder_pattern_string(std::string_view placeholder
 
 /**
  * @brief Upper bound, in bytes, on the length of any string `pattern` can
- *        match -- computed by walking RE2's parsed representation of
- *        `pattern`, not the source text.
+ *        match, computed by parsing `pattern` over a restricted
+ *        RE2/Perl-syntax subset (see the file-level doc comment).
  * @return `SIZE_MAX` if `pattern` is unbounded (contains an unbounded
- *         repetition such as `*`/`+`/`{n,}`) or fails to parse at all (a
- *         bound cannot be proven either way, so the safe answer is
- *         "unbounded").
+ *         repetition such as `*`/`+`/`{n,}`), uses syntax outside the
+ *         supported subset, or is malformed -- in every case, a bound
+ *         cannot be proven, so the safe answer is "unbounded".
  */
 inline std::size_t regex_max_len(const std::string& pattern) {
-    re2::RegexpStatus status;
-    re2::Regexp* parsed = re2::Regexp::Parse(pattern, re2::Regexp::LikePerl, &status);
-    if (parsed == nullptr)
-        return SIZE_MAX;
-    const std::size_t result = detail::regexp_op_max_len(parsed);
-    parsed->Decref();
-    return result;
+    return detail::bounded_length(pattern);
 }
 
 /**
  * @brief Builds the tolerant placeholder-recognition pattern for a masking
  *        placeholder name (e.g. "EMAIL", "DB_DSN") together with its
- *        RE2-parse-tree-derived max byte length.
+ *        max byte length (see regex_max_len).
  * @details The pattern always has exactly one capture group (the
  *          placeholder's numeric index) and is case-insensitive
  *          (`(?i)`-prefixed) so `<EMAIL_1>`, `< email - 12 >`, `<EMAIL-1>`

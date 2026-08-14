@@ -8,12 +8,15 @@
  * matching / escaping behavior described in phase1-interfaces.md and
  * task-1.4-brief.md for build_placeholder_pattern specifically.
  *
- * TestMaxRuneLenInClass_InvalidRuneFallsBackToUTFMax from the Go suite is
- * NOT ported: it feeds a synthetic out-of-Unicode-range rune directly to
- * the internal maxRuneLenInClass helper, a state RE2's own parser can never
- * produce from a textual pattern (Regexp::Parse rejects/clamps runes above
- * 0x10FFFF), so there is no way to reach that branch through the public
- * surface this file tests against.
+ * regex_max_len is implemented as a hand-rolled recursive-descent parser
+ * over a restricted regex subset (see the doc comment on
+ * src/guard/PlaceholderRegex.hpp) rather than a walk of RE2's own parse
+ * tree -- re2/regexp.h, RE2's internal parser header, is not installed by
+ * the vcpkg re2 port. TestMaxRuneLenInClass_InvalidRuneFallsBackToUTFMax
+ * from the Go suite is NOT ported for the same reason it never applied to
+ * a from-scratch parser either: it exercises an internal helper with a
+ * synthetic out-of-Unicode-range rune that can never arise from parsing a
+ * real textual pattern.
  */
 
 #include <cstddef>
@@ -115,7 +118,7 @@ TEST(GuardPlaceholderRegex, PatternHasExactlyOneCaptureGroup) {
     EXPECT_EQ(re.NumberOfCapturingGroups(), 1);
 }
 
-// ── regex_max_len: RE2 parse-tree length bound ───────────────────────────────
+// ── regex_max_len: bounded-subset regex length parser ───────────────────────
 
 TEST(GuardRegexMaxLen, Literal) {
     EXPECT_EQ(Guard::regex_max_len("abc"), 3u);
@@ -182,6 +185,73 @@ TEST(GuardRegexMaxLen, ConcatOfMixedBoundedPieces) {
 
 TEST(GuardRegexMaxLen, CaptureGroupBoundIsChildBound) {
     EXPECT_EQ(Guard::regex_max_len("(a{3})"), 3u);
+}
+
+// ── parser robustness: bounded-subset recursive-descent parser ──────────────
+// (regex_max_len no longer walks RE2's internal parse tree -- re2/regexp.h
+// is not installed by the vcpkg re2 port -- it hand-parses a restricted
+// RE2/Perl subset instead. These cover the parser's own edge cases: nested
+// quantified groups, an escaped literal brace, and inputs it must refuse
+// without ever crashing.)
+
+TEST(GuardRegexMaxLen, NestedGroupWithQuantifierFollowedByLiteral) {
+    // (ab){2,3} -> 3 * len("ab") = 6, plus trailing literal 'c' -> 7.
+    EXPECT_EQ(Guard::regex_max_len("(ab){2,3}c"), 7u);
+}
+
+TEST(GuardRegexMaxLen, EscapedBraceIsALiteralNotAQuantifier) {
+    // "a\{" is the two literal characters 'a' and '{' (RE2::QuoteMeta emits
+    // exactly this for a literal '{' in a placeholder token) -- 2 bytes,
+    // bounded, not confused for a malformed {m,n} quantifier attempt.
+    EXPECT_EQ(Guard::regex_max_len("a\\{"), 2u);
+}
+
+TEST(GuardRegexMaxLen, UnclosedGroupIsUnboundedNotACrash) {
+    EXPECT_EQ(Guard::regex_max_len("(ab"), SIZE_MAX);
+}
+
+TEST(GuardRegexMaxLen, StrayClosingBraceIsUnboundedNotACrash) {
+    EXPECT_EQ(Guard::regex_max_len("a}b"), SIZE_MAX);
+}
+
+TEST(GuardRegexMaxLen, StrayClosingParenIsUnboundedNotACrash) {
+    EXPECT_EQ(Guard::regex_max_len("a)b"), SIZE_MAX);
+}
+
+TEST(GuardRegexMaxLen, UnclosedCharClassIsUnboundedNotACrash) {
+    EXPECT_EQ(Guard::regex_max_len("[abc"), SIZE_MAX);
+}
+
+TEST(GuardRegexMaxLen, TrailingBackslashIsUnboundedNotACrash) {
+    EXPECT_EQ(Guard::regex_max_len("ab\\"), SIZE_MAX);
+}
+
+TEST(GuardRegexMaxLen, EmptyPatternIsZero) {
+    EXPECT_EQ(Guard::regex_max_len(""), 0u);
+}
+
+TEST(GuardRegexMaxLen, UnicodePropertyClassIsUnbounded) {
+    // \p{...} is outside the supported subset (would need a full Unicode
+    // property table to bound precisely) -- refused conservatively.
+    EXPECT_EQ(Guard::regex_max_len("\\p{L}"), SIZE_MAX);
+}
+
+TEST(GuardRegexMaxLen, LookaheadIsUnbounded) {
+    // (?=...) is outside the supported subset -- refused conservatively.
+    EXPECT_EQ(Guard::regex_max_len("(?=ab)"), SIZE_MAX);
+}
+
+TEST(GuardRegexMaxLen, NonCapturingGroupWithFlags) {
+    EXPECT_EQ(Guard::regex_max_len("(?i:ab)c"), 3u);
+}
+
+TEST(GuardRegexMaxLen, NamedCaptureGroup) {
+    EXPECT_EQ(Guard::regex_max_len("(?P<x>ab)c"), 3u);
+}
+
+TEST(GuardRegexMaxLen, LazyQuantifierBoundIsSameAsGreedy) {
+    EXPECT_EQ(Guard::regex_max_len("a{2,4}?"), 4u);
+    EXPECT_EQ(Guard::regex_max_len("a*?"), SIZE_MAX);
 }
 
 // ── build_placeholder_pattern: max_len always matches regex_max_len ────────
