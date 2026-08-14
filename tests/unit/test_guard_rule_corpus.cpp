@@ -257,7 +257,7 @@ TEST_F(GuardRuleCorpus, PositiveCasesProduceExactlyOneMatchWithExpectedSpan) {
             if (pc.has_expect_span) {
                 const std::string got = pc.text.substr(matches[0].start, matches[0].end - matches[0].start);
                 EXPECT_EQ(got, pc.expect_span) << "rule '" << entry.rule_id
-                                                << "': matched span mismatch\n  input: " << pc.text;
+                                               << "': matched span mismatch\n  input: " << pc.text;
             }
         }
     }
