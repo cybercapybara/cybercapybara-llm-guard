@@ -200,14 +200,57 @@ TEST(GuardRegistry, NonBlankPlaceholderCompilesWithRecognizer) {
     EXPECT_EQ(cr.placeholder_re->NumberOfCapturingGroups(), 1);
 }
 
-TEST(GuardRegistry, PrefilterEligibleAlwaysFalse) {
-    // Task 1.8 wires the keyword-prefilter prover -- until then this stays
-    // false unconditionally, even for a rule with keywords.
-    Guard::Rule r = make_rule("test.rule", "secret");
+// ── prefilter_eligible wiring (Task 1.8) ─────────────────────────────────
+// The exhaustive port of Go's regexGuaranteesKeyword / foldSafeForToLower
+// test vectors lives in test_guard_prefilter.cpp; these pin only that
+// Registry::compile_rule actually calls the prover (on rule.regex, not
+// "(?m)" + rule.regex) and stores its result on CompiledRule.
+
+TEST(GuardRegistry, PrefilterEligibleTrueWhenRegexGuaranteesKeyword) {
+    Guard::Rule r = make_rule("test.rule", "secret=([a-z]+)");
     r.keywords = {"secret"};
 
     Guard::CompiledRule cr = Guard::Registry::compile_rule(r);
+    EXPECT_TRUE(cr.prefilter_eligible);
+}
+
+TEST(GuardRegistry, PrefilterIneligibleWhenKeywordNotGuaranteed) {
+    // The keyword is an external label the regex doesn't require (a
+    // self-contained hex token) -- must not be pre-filtered.
+    Guard::Rule r = make_rule("test.rule", R"(\b([a-f0-9]{32})\b)");
+    r.keywords = {"twilio"};
+
+    Guard::CompiledRule cr = Guard::Registry::compile_rule(r);
     EXPECT_FALSE(cr.prefilter_eligible);
+}
+
+TEST(GuardRegistry, PrefilterIneligibleWithNoKeywords) {
+    Guard::Rule r = make_rule("test.rule", "secret");
+    r.keywords.clear();
+
+    Guard::CompiledRule cr = Guard::Registry::compile_rule(r);
+    EXPECT_FALSE(cr.prefilter_eligible);
+}
+
+// ── Registry::prefilter_ineligible_rule_ids ──────────────────────────────
+
+TEST(GuardRegistry, PrefilterIneligibleRuleIdsReportsOnlyKeywordBearingIneligibleRules) {
+    std::vector<Guard::Rule> rules{
+        make_rule("elig", "secret=([a-z]+)", "SECRET"),
+        make_rule("inelig", R"(\b([a-f0-9]{32})\b)", "TOKEN"),
+        make_rule("nokw", "[A-Z]+", "NOKW"),
+    };
+    rules[0].keywords = {"secret"};
+    rules[1].keywords = {"twilio"};
+    // rules[2] ("nokw") declares no keywords at all.
+
+    auto reg = Guard::Registry::build(rules);
+
+    EXPECT_TRUE(reg->by_id("elig")->prefilter_eligible);
+    EXPECT_FALSE(reg->by_id("inelig")->prefilter_eligible);
+    EXPECT_FALSE(reg->by_id("nokw")->prefilter_eligible);
+
+    EXPECT_EQ(reg->prefilter_ineligible_rule_ids(), std::vector<std::string>{"inelig"});
 }
 
 // ── Registry::build: duplicate ids ───────────────────────────────────────
