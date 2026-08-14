@@ -624,8 +624,12 @@ TEST(GuardScanner, CrossBucketOverlapCoalescesUnderRealParallelPath) {
         matches.begin(), matches.end(), [](const Guard::ScanMatch& m) { return m.rule->rule.id == "leftpart"; });
     EXPECT_EQ(shadowed, matches.end());
 
-    // The six independent markers all survive untouched.
-    for (const std::string& id : {"m0", "m1", "m3", "m4", "m5", "m6"}) {
+    // The six independent markers all survive untouched. `const char*` (not
+    // `const std::string&`) as the loop variable type: GCC's
+    // -Wrange-loop-construct (an error under this repo's -Werror) flags a
+    // std::string& binding to a temporary materialized from each `const
+    // char*` element as an avoidable-copy-disguised-as-reference pattern.
+    for (const char* id : {"m0", "m1", "m3", "m4", "m5", "m6"}) {
         const auto found = std::find_if(
             matches.begin(), matches.end(), [&id](const Guard::ScanMatch& m) { return m.rule->rule.id == id; });
         EXPECT_NE(found, matches.end()) << "missing match for rule " << id;
