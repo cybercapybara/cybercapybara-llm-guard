@@ -219,7 +219,7 @@ TEST(GuardMasker, TriggeredRuleIdsAndDataTypesAreSortedUnique) {
 
 TEST(GuardMasker, ParallelEqualsSerialAcrossParallelMinBytesThreshold) {
     if (std::thread::hardware_concurrency() <= 1)
-        GTEST_SKIP() << "single-core runner: auto_opts would never actually exercise the parallel chunked path";
+        GTEST_SKIP() << "single-core runner: auto_opts would never actually exercise the parallel fan-out path";
 
     auto fx = build_rules({email_rule(), card_rule()});
 
@@ -440,6 +440,35 @@ TEST(GuardMasker, ScanTextsSerialStopsAtFirstFailure) {
     EXPECT_TRUE(results[2].matches.empty());
 }
 
+TEST(GuardMasker, ScanTextsParallelPropagatesErrorFromBrokenRuleSlice) {
+    // The parallel branch partitions RULES across workers (see Masker.hpp's
+    // file-level doc comment) -- this pins that a broken rule sharing a
+    // worker's slice with otherwise-working rules still surfaces as an
+    // error for every text that worker was asked to scan, and that the
+    // cross-worker merge in scan_texts correctly treats those texts as
+    // failed (discarding any OTHER worker's valid matches for them) rather
+    // than silently losing the failure.
+    if (std::thread::hardware_concurrency() <= 1)
+        GTEST_SKIP() << "single-core runner: cannot observe rule-partitioned fan-out";
+
+    std::vector<Guard::Rule> defs;
+    for (int i = 0; i < 10; ++i)
+        defs.push_back(make_rule("ok" + std::to_string(i), "NEEDLE" + std::to_string(i), "P"));
+    auto fx = build_rules(defs);
+
+    Guard::CompiledRule broken;
+    broken.rule = make_rule("boom", "unused", "X");
+    std::vector<const Guard::CompiledRule*> rules = fx.rules;
+    rules.push_back(&broken);  // last index -> lands in some worker's slice
+
+    std::vector<std::string> texts{"NEEDLE0 text", "NEEDLE1 text"};
+    MaskOptions opts;
+    opts.parallel_min_bytes = 1;  // force the parallel path
+    ASSERT_GT(Guard::detail::text_scan_worker_count(texts, opts), 1u);
+
+    EXPECT_THROW(Guard::mask_texts(texts, rules, opts), std::runtime_error);
+}
+
 // ── Text-level fan-out gate ────────────────────────────────────────────────
 
 TEST(GuardMasker, WorkerCountIsSerialForFewerThanTwoTexts) {
@@ -474,15 +503,16 @@ TEST(GuardMasker, ZeroParallelMinBytesFallsBackToDefault) {
 }
 
 TEST(GuardMasker, ScanTextsParallelChunksCoverEveryTextWithoutGapsOrOverlap) {
-    // Bounds in-flight std::async tasks to text_scan_worker_count() by
-    // chunking texts into contiguous ranges rather than one task per text
-    // (a request with many more texts than workers used to spawn one OS
-    // thread per text -- see the file-level doc comment in Masker.hpp).
-    // With more texts than any plausible worker count, this pins the
-    // chunk-index arithmetic itself: every text must be scanned exactly
-    // once, by whichever chunk owns its index, with no gaps or double work.
+    // scan_texts's parallel branch partitions RULES (not texts) across
+    // workers -- see Masker.hpp's file-level doc comment's "Why fan-out
+    // partitions RULES, not texts" section -- so each of these 37 texts'
+    // ONE genuine match lives in whichever worker's rule slice happens to
+    // hold the matching rule; every OTHER worker contributes zero matches
+    // for that text. This pins the cross-worker merge itself: every text
+    // must end up with exactly its one correct match, with nothing lost or
+    // duplicated regardless of which worker found it.
     if (std::thread::hardware_concurrency() <= 1)
-        GTEST_SKIP() << "single-core runner: cannot observe chunked fan-out";
+        GTEST_SKIP() << "single-core runner: cannot observe rule-partitioned fan-out";
 
     constexpr int kTextCount = 37;  // deliberately not a multiple of any small worker count
     std::vector<Guard::Rule> defs;
@@ -512,20 +542,6 @@ TEST(GuardMasker, ScanTextsParallelChunksCoverEveryTextWithoutGapsOrOverlap) {
         ASSERT_EQ(results[static_cast<std::size_t>(i)].matches.size(), 1u) << "text " << i;
         EXPECT_EQ(results[static_cast<std::size_t>(i)].matches[0].rule->rule.id, "r" + std::to_string(i));
     }
-}
-
-TEST(GuardMasker, WarmUpRulesToleratesNullEntries) {
-    // warm_up_rules (see Masker.hpp's file-level doc comment on the
-    // text-level fan-out's shared-RE2-object concurrency mitigation) must
-    // not crash on the same null-safety edge cases scan_rules itself
-    // defends against: a null CompiledRule* entry, or a CompiledRule whose
-    // `re` was never compiled.
-    auto fx = build_rules({make_rule("ok.rule", "abc", "A")});
-    Guard::CompiledRule broken;  // re left null
-    std::vector<const Guard::CompiledRule*> rules{fx.rules[0], nullptr, &broken};
-
-    EXPECT_NO_THROW(Guard::detail::warm_up_rules(rules));
-    EXPECT_NO_THROW(Guard::detail::warm_up_rules({}));
 }
 
 // ── Reserved-placeholder collection ────────────────────────────────────────
