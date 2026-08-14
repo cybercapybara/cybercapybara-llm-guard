@@ -9,37 +9,64 @@
  * that ship in configs/.
  */
 
-#include <cstdio>
+#include <atomic>
+#include <cstddef>
+#include <filesystem>
 #include <fstream>
 #include <string>
+#include <system_error>
+#include <vector>
 
 #include <gtest/gtest.h>
 
 #include "guard/Errors.hpp"
 #include "guard/Rule.hpp"
 #include "guard/RulesYaml.hpp"
+#include "guard/Unicode.hpp"
 
 namespace {
 
-// Writes `content` to `path` (relative to the test binary's cwd) and returns
-// path, for callers that want a RAII-free one-liner.
-std::string write_temp_yaml(const std::string& path, const std::string& content) {
-    std::ofstream file(path);
-    file << content;
-    file.close();
-    return path;
-}
+// RAII temp-file fixture: unique path per instance (so multiple files can
+// coexist within one test), removed in the destructor so an early
+// ASSERT_*/FAIL return -- which skips the rest of the test body -- still
+// cleans up rather than leaking files into the temp dir across runs.
+class TempYamlFile {
+public:
+    explicit TempYamlFile(const std::string& content) {
+        static std::atomic<int> counter{0};
+        const auto* test_info = ::testing::UnitTest::GetInstance()->current_test_info();
+        const std::string label = test_info ? std::string(test_info->test_suite_name()) + "_" + test_info->name()
+                                            : std::string("guard_rules");
+        path_ = (std::filesystem::temp_directory_path() /
+                 ("guard_rules_" + label + "_" + std::to_string(counter.fetch_add(1)) + ".yaml"))
+                    .string();
+        std::ofstream file(path_);
+        file << content;
+        const bool write_ok = static_cast<bool>(file);
+        file.close();
+        EXPECT_TRUE(write_ok) << "failed writing temp yaml file: " << path_;
+    }
 
-void remove_temp(const std::string& path) {
-    std::remove(path.c_str());
-}
+    ~TempYamlFile() {
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+    }
+
+    TempYamlFile(const TempYamlFile&) = delete;
+    TempYamlFile& operator=(const TempYamlFile&) = delete;
+
+    const std::string& path() const { return path_; }
+
+private:
+    std::string path_;
+};
 
 }  // namespace
 
 // ── Rule + group inheritance ────────────────────────────────────────────
 
 TEST(GuardRulesYaml, GroupFieldsInheritedAndFieldsParsed) {
-    const std::string yaml_text = R"(
+    TempYamlFile file(R"(
 guardrails_regex_rules:
   - data_type: 1
     group_priority: 90
@@ -68,12 +95,12 @@ guardrails_regex_rules:
       - rule_id: "ip.example"
         name: "ip.example"
         regex: '\d+\.\d+\.\d+\.\d+'
+        default_on: false
         masking:
           placeholder: "IPV4"
-)";
-    const std::string path = write_temp_yaml("test_guard_rules_a.yaml", yaml_text);
+)");
 
-    auto loaded = Guard::load_rules_files({path});
+    auto loaded = Guard::load_rules_files({file.path()});
 
     ASSERT_EQ(loaded.groups.size(), 2u);
     EXPECT_EQ(loaded.groups[0].data_type, Guard::DataType::Credentials);
@@ -126,38 +153,85 @@ guardrails_regex_rules:
     EXPECT_TRUE(r1.validators.empty());
     EXPECT_EQ(r1.min_length, 0u);
     EXPECT_DOUBLE_EQ(r1.entropy, 0.0);
-    // default_on omitted -> Go zero-value semantics: false, not the struct's
-    // true default-member-initializer (that only applies to a Rule built
-    // outside the loader).
+    // Explicit `default_on: false` overrides the declared default.
     EXPECT_FALSE(r1.default_on);
+}
 
-    remove_temp(path);
+TEST(GuardRulesYaml, DefaultOnAbsentKeepsDeclaredDefault) {
+    // Interface-contract ruling: Rule::default_on{true} is the struct's
+    // declared default; an omitted YAML key must NOT be reinterpreted as
+    // Go's inert zero-value. Only an explicit `default_on: false` flips it.
+    TempYamlFile file(R"(
+guardrails_regex_rules:
+  - data_type: 1
+    group_priority: 1
+    name: CREDENTIALS
+    display_name: "Credentials"
+    description: "d"
+    rules:
+      - rule_id: "credentials.default_on_absent"
+        name: "credentials.default_on_absent"
+        regex: 'x'
+        masking:
+          placeholder: "X"
+)");
+
+    auto loaded = Guard::load_rules_files({file.path()});
+
+    ASSERT_EQ(loaded.rules.size(), 1u);
+    EXPECT_TRUE(loaded.rules[0].default_on);
+}
+
+TEST(GuardRulesYaml, RuleLevelGroupAndDataTypeKeysAreIgnored) {
+    // A rule can't override its group's name/data_type by declaring its own
+    // `group:`/`data_type:` keys -- those are inherited from the enclosing
+    // group entry only, mirroring the Go reference (`yaml:"-"` on both
+    // fields there).
+    TempYamlFile file(R"(
+guardrails_regex_rules:
+  - data_type: 1
+    group_priority: 1
+    name: CREDENTIALS
+    display_name: "Credentials"
+    description: "d"
+    rules:
+      - rule_id: "credentials.spoofed_fields"
+        name: "credentials.spoofed_fields"
+        group: "SOMETHING_ELSE"
+        data_type: 9
+        regex: 'x'
+        masking:
+          placeholder: "X"
+)");
+
+    auto loaded = Guard::load_rules_files({file.path()});
+
+    ASSERT_EQ(loaded.rules.size(), 1u);
+    EXPECT_EQ(loaded.rules[0].group, "CREDENTIALS");
+    EXPECT_EQ(loaded.rules[0].data_type, Guard::DataType::Credentials);
 }
 
 TEST(GuardRulesYaml, GroupWithoutRulesKeyIsEmptyGroup) {
-    const std::string yaml_text = R"(
+    TempYamlFile file(R"(
 guardrails_regex_rules:
   - data_type: 6
     group_priority: 1
     name: CUSTOM
     display_name: "Custom"
     description: "no rules key at all"
-)";
-    const std::string path = write_temp_yaml("test_guard_rules_empty_group.yaml", yaml_text);
+)");
 
-    auto loaded = Guard::load_rules_files({path});
+    auto loaded = Guard::load_rules_files({file.path()});
 
     ASSERT_EQ(loaded.groups.size(), 1u);
     EXPECT_EQ(loaded.groups[0].name, "CUSTOM");
     EXPECT_TRUE(loaded.rules.empty());
-
-    remove_temp(path);
 }
 
 TEST(GuardRulesYaml, UnknownTopLevelAndRuleKeysAreIgnored) {
     // Forward-compat: neither an unrecognized top-level sibling key nor an
     // unrecognized rule-level key should break the load.
-    const std::string yaml_text = R"(
+    TempYamlFile file(R"(
 some_future_top_level_key: "ignore me"
 guardrails_regex_rules:
   - data_type: 1
@@ -173,15 +247,12 @@ guardrails_regex_rules:
         some_future_rule_key: "ignore me too"
         masking:
           placeholder: "X"
-)";
-    const std::string path = write_temp_yaml("test_guard_rules_forward_compat.yaml", yaml_text);
+)");
 
-    auto loaded = Guard::load_rules_files({path});
+    auto loaded = Guard::load_rules_files({file.path()});
 
     ASSERT_EQ(loaded.rules.size(), 1u);
     EXPECT_EQ(loaded.rules[0].id, "credentials.forward_compat");
-
-    remove_temp(path);
 }
 
 TEST(GuardRulesYaml, DataTypeOutsideNamedEnumStillLoads) {
@@ -189,7 +260,7 @@ TEST(GuardRulesYaml, DataTypeOutsideNamedEnumStillLoads) {
     // load time -- an out-of-range value round-trips rather than erroring.
     // Guard::DataType is a C++ enum class over int, so a static_cast holds
     // the raw value the same way.
-    const std::string yaml_text = R"(
+    TempYamlFile file(R"(
 guardrails_regex_rules:
   - data_type: 42
     group_priority: 900
@@ -202,10 +273,9 @@ guardrails_regex_rules:
         regex: '\bfoo\b'
         masking:
           placeholder: "TEST"
-)";
-    const std::string path = write_temp_yaml("test_guard_rules_odd_datatype.yaml", yaml_text);
+)");
 
-    auto loaded = Guard::load_rules_files({path});
+    auto loaded = Guard::load_rules_files({file.path()});
 
     ASSERT_EQ(loaded.groups.size(), 1u);
     EXPECT_EQ(static_cast<int>(loaded.groups[0].data_type), 42);
@@ -213,8 +283,41 @@ guardrails_regex_rules:
     ASSERT_EQ(loaded.rules.size(), 1u);
     EXPECT_EQ(static_cast<int>(loaded.rules[0].data_type), 42);
     EXPECT_EQ(loaded.rules[0].group, "test.group");
+}
 
-    remove_temp(path);
+// ── load_rules_file (singular) ───────────────────────────────────────────
+
+namespace {
+
+// The two real catalogs shipped in configs/, loaded together.
+std::vector<std::string> real_catalog_paths() {
+    const std::string root(LLMGUARD_REPO_ROOT);
+    return {root + "/configs/rules.yaml", root + "/configs/rules.gitleaks.generated.yaml"};
+}
+
+}  // namespace
+
+TEST(GuardRulesYaml, LoadRulesFileSingularLoadsOneFile) {
+    TempYamlFile file(R"(
+guardrails_regex_rules:
+  - data_type: 1
+    group_priority: 1
+    name: CREDENTIALS
+    display_name: "Credentials"
+    description: "d"
+    rules:
+      - rule_id: "credentials.singular"
+        name: "credentials.singular"
+        regex: 'x'
+        masking:
+          placeholder: "X"
+)");
+
+    auto loaded = Guard::load_rules_file(file.path());
+
+    ASSERT_EQ(loaded.groups.size(), 1u);
+    ASSERT_EQ(loaded.rules.size(), 1u);
+    EXPECT_EQ(loaded.rules[0].id, "credentials.singular");
 }
 
 // ── Multi-file loading: dedup, merge, duplicate rule_id ─────────────────
@@ -242,18 +345,15 @@ guardrails_regex_rules:
         out.replace(pos, 2, id);
         return out;
     };
-    const std::string f1 = write_temp_yaml("test_guard_rules_multi1.yaml", render("r1"));
-    const std::string f2 = write_temp_yaml("test_guard_rules_multi2.yaml", render("r2"));
+    TempYamlFile f1(render("r1"));
+    TempYamlFile f2(render("r2"));
 
-    auto loaded = Guard::load_rules_files({f1, f2});
+    auto loaded = Guard::load_rules_files({f1.path(), f2.path()});
 
     EXPECT_EQ(loaded.groups.size(), 2u);
     ASSERT_EQ(loaded.rules.size(), 2u);
     EXPECT_EQ(loaded.rules[0].id, "r1");
     EXPECT_EQ(loaded.rules[1].id, "r2");
-
-    remove_temp(f1);
-    remove_temp(f2);
 }
 
 TEST(GuardRulesYaml, DuplicateRuleIdAcrossFilesThrows) {
@@ -271,25 +371,22 @@ guardrails_regex_rules:
         masking:
           placeholder: "TEST"
 )";
-    const std::string f1 = write_temp_yaml("test_guard_rules_dup1.yaml", tmpl);
-    const std::string f2 = write_temp_yaml("test_guard_rules_dup2.yaml", tmpl);
+    TempYamlFile f1(tmpl);
+    TempYamlFile f2(tmpl);
 
     bool threw = false;
     try {
-        Guard::load_rules_files({f1, f2});
+        Guard::load_rules_files({f1.path(), f2.path()});
     } catch (const Guard::RuleError& e) {
         threw = true;
         EXPECT_EQ(e.code, Guard::RuleError::Code::DuplicateId);
         EXPECT_NE(std::string(e.what()).find("dup"), std::string::npos);
     }
     EXPECT_TRUE(threw);
-
-    remove_temp(f1);
-    remove_temp(f2);
 }
 
 TEST(GuardRulesYaml, RepeatedPathIsLoadedOnce) {
-    const std::string yaml_text = R"(
+    TempYamlFile file(R"(
 guardrails_regex_rules:
   - data_type: 1
     group_priority: 100
@@ -302,17 +399,14 @@ guardrails_regex_rules:
         regex: "x"
         masking:
           placeholder: "X"
-)";
-    const std::string path = write_temp_yaml("test_guard_rules_repeat.yaml", yaml_text);
+)");
 
     // Same path given twice (and once with surrounding whitespace, which
     // should trim to the same path) -- loaded exactly once, not thrice.
-    auto loaded = Guard::load_rules_files({path, path, "  " + path + "  "});
+    auto loaded = Guard::load_rules_files({file.path(), file.path(), "  " + file.path() + "  "});
 
     EXPECT_EQ(loaded.groups.size(), 1u);
     EXPECT_EQ(loaded.rules.size(), 1u);
-
-    remove_temp(path);
 }
 
 TEST(GuardRulesYaml, EmptyOrBlankPathsThrow) {
@@ -324,6 +418,58 @@ TEST(GuardRulesYaml, MissingFileThrowsParseError) {
     bool threw = false;
     try {
         Guard::load_rules_files({"/nonexistent/path/to/rules.yaml"});
+    } catch (const Guard::RuleError& e) {
+        threw = true;
+        EXPECT_EQ(e.code, Guard::RuleError::Code::ParseError);
+    }
+    EXPECT_TRUE(threw);
+}
+
+TEST(GuardRulesYaml, MalformedYamlSyntaxThrowsParseError) {
+    // Invalid YAML syntax (unterminated flow sequence).
+    TempYamlFile file(R"(
+guardrails_regex_rules: [
+  - data_type: 1
+)");
+
+    bool threw = false;
+    try {
+        Guard::load_rules_files({file.path()});
+    } catch (const Guard::RuleError& e) {
+        threw = true;
+        EXPECT_EQ(e.code, Guard::RuleError::Code::ParseError);
+    }
+    EXPECT_TRUE(threw);
+}
+
+TEST(GuardRulesYaml, TopLevelKeyWrongTypeThrowsParseError) {
+    // `guardrails_regex_rules` present but a scalar, not a sequence -- must
+    // fail loudly rather than silently loading zero rules (the worst
+    // failure shape for a masking proxy: it looks like a valid, empty
+    // catalog).
+    TempYamlFile file(R"(
+guardrails_regex_rules: "not a list"
+)");
+
+    bool threw = false;
+    try {
+        Guard::load_rules_files({file.path()});
+    } catch (const Guard::RuleError& e) {
+        threw = true;
+        EXPECT_EQ(e.code, Guard::RuleError::Code::ParseError);
+    }
+    EXPECT_TRUE(threw);
+}
+
+TEST(GuardRulesYaml, TopLevelKeyAsMapThrowsParseError) {
+    TempYamlFile file(R"(
+guardrails_regex_rules:
+  not_a_sequence: true
+)");
+
+    bool threw = false;
+    try {
+        Guard::load_rules_files({file.path()});
     } catch (const Guard::RuleError& e) {
         threw = true;
         EXPECT_EQ(e.code, Guard::RuleError::Code::ParseError);
@@ -375,8 +521,33 @@ TEST(GuardRulesYaml, DataTypeNameRoundTrips) {
 // ── Real ported catalogs ──────────────────────────────────────────────────
 
 TEST(GuardRulesYaml, LoadsPortedCatalogs) {
-    auto loaded = Guard::load_rules_files({std::string(LLMGUARD_REPO_ROOT) + "/configs/rules.yaml",
-                                           std::string(LLMGUARD_REPO_ROOT) + "/configs/rules.gitleaks.generated.yaml"});
+    auto loaded = Guard::load_rules_files(real_catalog_paths());
     EXPECT_EQ(loaded.rules.size(), 266u);  // 46 + 220
     EXPECT_GE(loaded.groups.size(), 8u);
+}
+
+TEST(GuardRulesYaml, EveryKeywordAndBanlistEntryInRealCatalogsIsAlreadyLowercase) {
+    // Regression test for the ASCII-only-lowercase bug: configs/rules.yaml
+    // carries Cyrillic keywords (pii.docs.inn-person/-org/-ogrn/-ogrnip use
+    // "ИНН"/"ОГРН"/"ОГРНИП"). If the loader ever regresses to a byte-wise
+    // lowercase, this fails because a Cyrillic entry stops being a fixed
+    // point of to_lower_utf8 while still uppercase.
+    auto loaded = Guard::load_rules_files(real_catalog_paths());
+
+    std::size_t checked_keywords = 0;
+    std::size_t checked_banlist = 0;
+    for (const auto& rule : loaded.rules) {
+        for (const auto& kw : rule.keywords) {
+            EXPECT_EQ(kw, Guard::to_lower_utf8(kw)) << "rule " << rule.id << " keyword '" << kw << "' not lowercase";
+            ++checked_keywords;
+        }
+        for (const auto& b : rule.banlist) {
+            EXPECT_EQ(b, Guard::to_lower_utf8(b)) << "rule " << rule.id << " banlist entry '" << b << "' not lowercase";
+            ++checked_banlist;
+        }
+    }
+    // Sanity: make sure this test actually exercised non-trivial data,
+    // including at least the four Cyrillic-keyword rules in rules.yaml.
+    EXPECT_GT(checked_keywords, 0u);
+    EXPECT_GT(checked_banlist, 0u);
 }
