@@ -294,6 +294,16 @@ inline std::optional<std::size_t> skip_value(std::string_view doc, std::size_t p
         return std::nullopt;
 
     std::vector<WalkFrame> frames;
+    // Pre-reserved so the common case (shallow JSON) never reallocates, and
+    // -- load-bearing, not just an optimization -- so the vector's FIRST
+    // ever growth isn't from an empty (data()==nullptr, capacity==0) state:
+    // GCC 13 at -O3 has a known false positive (`-Wstringop-overflow` on
+    // `vector::_M_realloc_insert`'s very first reallocation, reported as
+    // "writing 1 byte into a region of size 0" with a nonsensical negative
+    // offset) triggered here by this lambda's `push_back` being inlined at
+    // several call sites within `skip_value`. Reserving up front sidesteps
+    // that specific GCC codegen path entirely for realistic documents.
+    frames.reserve(16);
 
     // Reads a scalar value or opens a container at `p`. A scalar returns
     // its own end offset directly; an opener pushes a frame (invalidating
