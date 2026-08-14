@@ -62,15 +62,19 @@
  *            - literal characters, including multibyte UTF-8 runes written
  *              directly in the pattern (byte length = the rune's UTF-8
  *              encoded length)
- *            - backslash escapes: `\d \D \s \S \w \W` (RE2's Perl classes
- *              are ASCII-only per RE2's own syntax docs, so 1 byte each),
- *              `\b \B \A \z \Z` (zero-width anchors), `\n \t \r \f \v \a`
- *              (1-byte control literals), and `\X` for any other character
- *              X (a literal escaped char, e.g. what `RE2::QuoteMeta`
- *              produces for `.` -> `\.`)
- *            - character classes `[...]` / `[^...]`, including ranges
- *              (`a-z`) -- bounded by the UTF-8 length of the widest member
- *              or range endpoint
+ *            - backslash escapes: `\d \s \w` (RE2's Perl classes are
+ *              ASCII-only per RE2's own syntax docs, so 1 byte each); their
+ *              negations `\D \S \W` match anything OUTSIDE that ASCII-only
+ *              set, so `kUtf8Max` (4) instead; `\b \B \A \z \Z` (zero-width
+ *              anchors); `\n \t \r \f \v \a` (1-byte control literals); and
+ *              `\X` for any other character X (a literal escaped char, e.g.
+ *              what `RE2::QuoteMeta` produces for `.` -> `\.`) -- EXCEPT
+ *              `\xHH`/`\x{...}` hex and `\0`-`\7` octal escapes, which are
+ *              NOT supported (refused; see the CORRECTNESS NOTES below)
+ *            - character classes `[...]` -- bounded by the UTF-8 length of
+ *              the widest member or range endpoint; a *negated* class
+ *              `[^...]` is always `kUtf8Max` regardless of its members
+ *              (see CORRECTNESS NOTES)
  *            - groups `(...)`, non-capturing `(?:...)`, named `(?P<n>...)`,
  *              and inline-flag forms `(?i)` / `(?i:...)` (flags themselves
  *              don't affect length; `\p{...}`/`\P{...}` and lookaround
@@ -90,6 +94,47 @@
  *          `std::size_t` into a small, *wrong* bound -- it clamps to
  *          `SIZE_MAX` ("unbounded") instead, which is always safe for a
  *          buffer-sizing bound even if it costs precision.
+ *
+ *          CORRECTNESS NOTES (closed after code review on this PR -- each
+ *          one was a real under-estimate or crash path, the two classes of
+ *          bug this function must never have):
+ *            - Case-insensitive fold-orbit width: under `(?i)`, ASCII 's'/
+ *              'S' Unicode-simple-case-folds with U+017F LATIN SMALL LETTER
+ *              LONG S (2 bytes in UTF-8) and 'k'/'K' folds with U+212A
+ *              KELVIN SIGN (3 bytes) -- RE2 matches those wider runes too,
+ *              so counting the literal ASCII byte (1) under-estimates. While
+ *              `(?i)`/`(?i:...)` is active, `s`/`S`/`k`/`K` literals count
+ *              as 3 bytes (the wider of the two known orbits, used
+ *              uniformly rather than tracking each letter's exact width
+ *              separately). This deliberately exceeds the true bound for
+ *              'S' (true widest is 2) and exceeds Go's own bound (the Go
+ *              reference has this same defect, uncorrected) -- an
+ *              intentional safety margin, since over-estimating a length
+ *              bound is always safe and under-estimating never is. Other
+ *              ASCII letters have no known wide fold-orbit member and are
+ *              NOT widened by this rule (fold-tracking is scoped to
+ *              wherever a `(?i)`/`(?i:...)` flag was seen; see
+ *              `fold_case_`).
+ *            - Negated classes: `[^...]`'s complement spans everything
+ *              *outside* the listed members -- i.e. effectively all of
+ *              Unicode -- so its bound is `kUtf8Max` regardless of what's
+ *              listed, not the listed members' width. Likewise the negated
+ *              Perl escapes `\D \S \W` (unlike their positive counterparts
+ *              `\d \s \w`, which really are a fixed ASCII-only set) match
+ *              "anything that isn't ASCII digit/space/word", which includes
+ *              arbitrary wide Unicode runes.
+ *            - Recursion depth: `parse_group` recurses through
+ *              `parse_alternation`/`parse_concat`/`parse_atom` for every
+ *              nested `(`; an adversarial input with tens of thousands of
+ *              nested groups can exhaust the call stack. `parse_group`
+ *              caps nesting at `kMaxGroupDepth` and refuses (SIZE_MAX)
+ *              rather than recursing further.
+ *            - `\xHH` hex and `\0`-`\7` octal escapes are not decoded (that
+ *              would require converting the numeric value to a UTF-8 byte
+ *              length correctly); refusing them beats silently under-
+ *              counting (e.g. `[\xff]` is codepoint 0xFF, 2 UTF-8 bytes,
+ *              not the 1 a naive "treat the char after `\` literally" rule
+ *              would report).
  */
 
 #pragma once
@@ -171,8 +216,21 @@ public:
     }
 
 private:
+    // Nesting cap for parse_group's recursion (parse_group ->
+    // parse_alternation -> parse_concat -> parse_piece -> parse_atom ->
+    // parse_group ...). Real patterns -- ours and anything a human would
+    // author -- never come close; this exists purely to refuse an
+    // adversarial input with tens of thousands of nested '(' before it
+    // exhausts the call stack.
+    static constexpr int kMaxGroupDepth = 1000;
+
     const std::string& s_;
     std::size_t pos_;
+    int depth_ = 0;
+    // Set once a `(?i)` or `(?i:...)` flag is seen and never cleared again
+    // (see the file-level "CORRECTNESS NOTES" -- staying on is the safe
+    // direction). Widens the s/k fold-orbit letters in consume_rune_len.
+    bool fold_case_ = false;
 
     bool at_end() const { return pos_ >= s_.size(); }
     char peek() const { return at_end() ? '\0' : s_[pos_]; }
@@ -180,6 +238,9 @@ private:
     // Consumes and returns the UTF-8 byte length of the rune starting at
     // pos_ (1-4 bytes), advancing past it. Used for un-escaped literal
     // characters, including multibyte ones written directly in the pattern.
+    // Under an active case-insensitive flag, 's'/'S'/'k'/'K' are widened to
+    // 3 bytes (their Unicode fold partners ſ/K -- see the file-level
+    // "CORRECTNESS NOTES") instead of the raw 1-byte ASCII width.
     std::size_t consume_rune_len() {
         if (at_end())
             throw UnboundedSignal{};
@@ -193,8 +254,9 @@ private:
             n = 4;
         if (pos_ + n > s_.size())
             n = s_.size() - pos_;  // truncated multibyte sequence at end of string
+        const bool wide_fold_letter = fold_case_ && n == 1 && (c == 's' || c == 'S' || c == 'k' || c == 'K');
         pos_ += n;
-        return n;
+        return wide_fold_letter ? 3 : n;
     }
 
     // Go equivalent: OpAlternate -- bound is the longest branch, since
@@ -328,12 +390,31 @@ private:
         return consume_rune_len();  // plain literal character (possibly multibyte)
     }
 
+    // RAII nesting guard for parse_group: increments on construction,
+    // decrements on destruction, so every one of parse_group's several
+    // return points (and the UnboundedSignal throw paths above them)
+    // unwinds depth_ correctly.
+    class DepthGuard {
+    public:
+        explicit DepthGuard(int& depth) : depth_(depth) { ++depth_; }
+        ~DepthGuard() { --depth_; }
+        DepthGuard(const DepthGuard&) = delete;
+        DepthGuard& operator=(const DepthGuard&) = delete;
+
+    private:
+        int& depth_;
+    };
+
     // Go equivalent: OpCapture (plain '(...)' and named '(?P<n>...)') or a
     // transparent pass-through for '(?:...)' / '(?i)' / '(?i:...)' (flags
     // don't change the bound; Go's syntax parser strips them before this
     // point ever matters). Lookaround and other '(?...)' forms outside the
     // supported subset are refused.
     std::size_t parse_group() {
+        if (depth_ >= kMaxGroupDepth)
+            throw UnboundedSignal{};  // adversarially deep nesting: refuse before the stack does
+        DepthGuard guard(depth_);
+
         ++pos_;  // consume '('
         if (peek() != '?') {
             const std::size_t n = parse_alternation();
@@ -359,9 +440,15 @@ private:
         // (?flags) or (?flags:...): consume the recognized flag letters
         // (i s m U, optionally separated by a single '-' for on/off
         // groups). Anything else here (lookahead '(?=' '(?!', lookbehind
-        // '(?<=' '(?<!', etc.) falls through and is refused below.
+        // '(?<=' '(?<!', etc.) falls through and is refused below. Seeing
+        // 'i' anywhere in the flag list sets fold_case_ and never clears
+        // it (see the file-level "CORRECTNESS NOTES" -- ignoring a `-i`
+        // that's meant to turn folding back off just keeps the bound safe,
+        // never wrong).
         bool saw_flag = false;
         while (!at_end() && (peek() == 'i' || peek() == 's' || peek() == 'm' || peek() == 'U' || peek() == '-')) {
+            if (peek() == 'i')
+                fold_case_ = true;
             ++pos_;
             saw_flag = true;
         }
@@ -388,11 +475,19 @@ private:
     // single member (a literal char, an escape like \s, or the high end of
     // an a-b range); a wider class only ever needs *more* bytes for its
     // widest member, never fewer for a narrower one, so tracking the max is
-    // sufficient (mirrors Go's maxRuneLenInClass).
+    // sufficient (mirrors Go's maxRuneLenInClass). A *negated* class
+    // `[^...]` is the complement of its listed members -- effectively all
+    // of Unicode minus a few code points -- so its bound is always
+    // kUtf8Max, regardless of what's listed; the members still have to be
+    // parsed (for correct cursor advancement and to catch malformed
+    // syntax), just not used to compute the returned width.
     std::size_t parse_char_class() {
         ++pos_;  // consume '['
-        if (peek() == '^')
+        bool negated = false;
+        if (peek() == '^') {
+            negated = true;
             ++pos_;
+        }
         std::size_t widest = 0;
         bool any_member = false;
         while (true) {
@@ -417,7 +512,7 @@ private:
         }
         if (!any_member)
             throw UnboundedSignal{};  // "[]" -- empty/malformed class
-        return widest;
+        return negated ? kUtf8Max : widest;
     }
 
     // A backslash escape: either one of the recognized Perl class/anchor
@@ -430,15 +525,22 @@ private:
         const char c = s_[pos_];
         switch (c) {
             case 'd':
-            case 'D':
             case 's':
-            case 'S':
             case 'w':
-            case 'W':
-                // RE2's Perl classes \d \s \w (and negations) are
-                // ASCII-only per RE2's syntax documentation: 1 byte each.
+                // RE2's Perl classes \d \s \w are ASCII-only per RE2's
+                // syntax documentation: 1 byte, always.
                 ++pos_;
                 return 1;
+            case 'D':
+            case 'S':
+            case 'W':
+                // Their negations match "anything that ISN'T" the
+                // ASCII-only positive set -- i.e. any other Unicode rune,
+                // up to kUtf8Max bytes. Conflating these with the positive
+                // classes above (both returning 1) was the exact
+                // under-estimate this case review caught.
+                ++pos_;
+                return kUtf8Max;
             case 'b':
             case 'B':
             case 'A':
@@ -459,6 +561,24 @@ private:
                 // \p{...} / \P{...} Unicode property class: bounding this
                 // precisely needs a full Unicode property table, which is
                 // outside the supported subset -- refuse rather than guess.
+                throw UnboundedSignal{};
+            case 'x':
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7':
+                // \xHH / \x{...} hex escapes and \0-\7 octal escapes encode
+                // a numeric code point that this parser does not decode
+                // (that requires parsing the digits and converting the
+                // resulting value to a UTF-8 byte length correctly) --
+                // refuse rather than fall through to the default case
+                // below, which would wrongly treat 'x'/the digit as a
+                // literal ASCII char and under-count (e.g. `[\xff]` is
+                // code point 0xFF, 2 UTF-8 bytes, not 1).
                 throw UnboundedSignal{};
             default:
                 return consume_rune_len();  // literal escaped char, e.g. "\."
@@ -551,6 +671,17 @@ inline std::size_t regex_max_len(const std::string& pattern) {
  *         out to be unbounded (see regex_max_len) -- unreachable for the
  *         fixed-shape template this function emits, kept as a defensive
  *         assertion.
+ * @note This function does NOT special-case a blank/whitespace-only
+ *       `placeholder_name` -- it always builds a (permissive, but still
+ *       bounded) pattern, even for `""`. The Go reference's blank-placeholder
+ *       guard (`compilePlaceholderRegex`: `strings.TrimSpace(name) == ""`
+ *       means "no recognizer at all" -- a nil regex, zero length, skipped
+ *       entirely) lives one layer up, at the call site that decides whether
+ *       a rule gets a placeholder recognizer in the first place. Callers
+ *       (Registry::compile_rule in Task 1.5) must replicate that guard
+ *       themselves before calling this function: skip calling it, rather
+ *       than calling it and discarding the result, when
+ *       `rule.masking.placeholder` is empty or all-whitespace.
  */
 inline PlaceholderPattern build_placeholder_pattern(std::string_view placeholder_name) {
     std::string pattern = detail::build_placeholder_pattern_string(placeholder_name);

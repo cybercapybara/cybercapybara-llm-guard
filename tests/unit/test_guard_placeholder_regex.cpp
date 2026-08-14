@@ -254,7 +254,132 @@ TEST(GuardRegexMaxLen, LazyQuantifierBoundIsSameAsGreedy) {
     EXPECT_EQ(Guard::regex_max_len("a*?"), SIZE_MAX);
 }
 
+// ── negated classes: complement spans (effectively) all of Unicode ─────────
+// (Code review finding: a negated class or negated Perl escape must never
+// be bounded by its LISTED members' width -- its complement is everything
+// ELSE, up to kUtf8Max bytes, regardless of what's excluded.)
+
+TEST(GuardRegexMaxLen, NegatedCharClassIsUtf8MaxRegardlessOfMembers) {
+    EXPECT_EQ(Guard::regex_max_len("[^a]"), 4u);
+    EXPECT_EQ(Guard::regex_max_len("[^0-9]"), 4u);
+}
+
+TEST(GuardRegexMaxLen, NegatedPerlClassesAreUtf8Max) {
+    EXPECT_EQ(Guard::regex_max_len("\\D"), 4u);
+    EXPECT_EQ(Guard::regex_max_len("\\S"), 4u);
+    EXPECT_EQ(Guard::regex_max_len("\\W"), 4u);
+}
+
+TEST(GuardRegexMaxLen, NegatedPerlClassInsideBracketExpressionIsUtf8Max) {
+    EXPECT_EQ(Guard::regex_max_len("[\\D]"), 4u);
+}
+
+TEST(GuardRegexMaxLen, PositivePerlClassesStayAsciiWidth) {
+    // The non-negated counterparts really are a fixed ASCII-only set --
+    // unaffected by the [^...]/\D\S\W fix above.
+    EXPECT_EQ(Guard::regex_max_len("\\d"), 1u);
+    EXPECT_EQ(Guard::regex_max_len("\\s"), 1u);
+    EXPECT_EQ(Guard::regex_max_len("\\w"), 1u);
+}
+
+// ── hex/octal escapes: not decoded, refused rather than under-counted ──────
+
+TEST(GuardRegexMaxLen, HexEscapeInsideClassIsUnbounded) {
+    // Code review finding: [\xff] is code point 0xFF (2 UTF-8 bytes), but
+    // the pre-fix parser fell through to treating 'x' as a literal ASCII
+    // char and returned 1. Refused outright now instead of guessing.
+    EXPECT_EQ(Guard::regex_max_len("[\\xff]"), SIZE_MAX);
+}
+
+TEST(GuardRegexMaxLen, HexEscapeOutsideClassIsUnbounded) {
+    EXPECT_EQ(Guard::regex_max_len("a\\xffb"), SIZE_MAX);
+}
+
+TEST(GuardRegexMaxLen, OctalEscapeIsUnbounded) {
+    EXPECT_EQ(Guard::regex_max_len("\\052"), SIZE_MAX);
+}
+
+// ── recursion depth cap: refuse adversarial nesting, never crash ───────────
+
+TEST(GuardRegexMaxLen, DeeplyNestedGroupsAreRefusedNotCrashed) {
+    // parse_group recurses once per nested '('; an unbounded cap would let
+    // an adversarial pattern exhaust the call stack. 5000 levels comfortably
+    // exceeds BoundedLengthParser::kMaxGroupDepth (1000) -- must come back
+    // as "unbounded", not crash the process.
+    std::string pattern(5000, '(');
+    pattern += "a";
+    pattern.append(5000, ')');
+    EXPECT_EQ(Guard::regex_max_len(pattern), SIZE_MAX);
+}
+
+// ── case-insensitive fold-orbit width: s/k widen under (?i) ────────────────
+// (Code review finding: under (?i), ASCII 's'/'S' folds with U+017F LATIN
+// SMALL LETTER LONG S [2 bytes] and 'k'/'K' folds with U+212A KELVIN SIGN
+// [3 bytes] -- RE2 matches those wider runes too, so counting the literal
+// ASCII byte under-estimates. Widened uniformly to 3 bytes, the wider of
+// the two orbits, for both letters -- see the file-level "CORRECTNESS
+// NOTES" on PlaceholderRegex.hpp for why a uniform, slightly loose bound
+// beats tracking each letter's exact orbit width.)
+
+TEST(GuardRegexMaxLen, CaseInsensitiveSAndKWidenToThreeBytes) {
+    EXPECT_EQ(Guard::regex_max_len("(?i)s"), 3u);
+    EXPECT_EQ(Guard::regex_max_len("(?i)S"), 3u);
+    EXPECT_EQ(Guard::regex_max_len("(?i)k"), 3u);
+    EXPECT_EQ(Guard::regex_max_len("(?i)K"), 3u);
+}
+
+TEST(GuardRegexMaxLen, CaseInsensitiveOtherLettersStayAsciiWidth) {
+    // No known wide fold-orbit member for these -- (?i) doesn't widen them.
+    EXPECT_EQ(Guard::regex_max_len("(?i)a"), 1u);
+    EXPECT_EQ(Guard::regex_max_len("(?i)email"), 5u);
+}
+
+TEST(GuardRegexMaxLen, WithoutFoldFlagSAndKStayAsciiWidth) {
+    EXPECT_EQ(Guard::regex_max_len("sk"), 2u);
+}
+
+TEST(GuardRegexMaxLen, InlineFoldFlagGroupWidensLettersInsideIt) {
+    // "(?i:s)" -- the flag is scoped syntactically to "(?i:...)", but this
+    // parser's fold_case_ is a sticky, never-cleared flag (see the
+    // CORRECTNESS NOTES): once set it stays set, which only ever makes the
+    // bound MORE conservative, never wrong.
+    EXPECT_EQ(Guard::regex_max_len("(?i:s)"), 3u);
+}
+
+// ── build_placeholder_pattern: pinned exact max_len values ─────────────────
+// Computed under the post-fix rules above; each is >= the true bound
+// (deliberately, for "s"/"k" -- see PlaceholderRegex.hpp's CORRECTNESS
+// NOTES) and > the pre-fix (buggy, under-estimating) value where the name
+// contains an 's'/'S'/'k'/'K'.
+
+TEST(GuardPlaceholderRegex, EmailMaxLenIsPinned) {
+    // "EMAIL" has no s/k -> completely unaffected by the fold-orbit fix;
+    // matches the value before that fix too.
+    auto p = Guard::build_placeholder_pattern("EMAIL");
+    EXPECT_EQ(p.max_len, 25u);
+}
+
+TEST(GuardPlaceholderRegex, DbDsnMaxLenIsPinned) {
+    // "DSN" contains one 'S', widened +2 bytes (1 -> 3) over the pre-fix
+    // value of 28.
+    auto p = Guard::build_placeholder_pattern("DB_DSN");
+    EXPECT_EQ(p.max_len, 30u);
+}
+
+TEST(GuardPlaceholderRegex, AccessTokenMaxLenIsPinned) {
+    // "ACCESS" has two 'S's, "TOKEN" has one 'K': three letters widened +2
+    // bytes each over the pre-fix value of 34 -> 40. This deliberately
+    // exceeds the empirically measured true widest match (36 bytes) --
+    // an intentional safety margin from using a uniform 3-byte width for
+    // both the s (true widest 2) and k (true widest 3) orbits, not a bug.
+    auto p = Guard::build_placeholder_pattern("ACCESS_TOKEN");
+    EXPECT_EQ(p.max_len, 40u);
+}
+
 // ── build_placeholder_pattern: max_len always matches regex_max_len ────────
+// Secondary consistency check alongside the pinned values above: max_len is
+// defined as regex_max_len(pattern), so this can never legitimately fail --
+// it exists to catch a future refactor that breaks that invariant.
 
 TEST(GuardPlaceholderRegex, MaxLenMatchesRegexMaxLenOfBuiltPattern) {
     auto p = Guard::build_placeholder_pattern("DB_DSN");
