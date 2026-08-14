@@ -52,9 +52,38 @@
  *              caller's (this file's) responsibility.
  *            - `validateMaskingConfig` (capture group bounds) runs before
  *              `compilePlaceholderRegex` in Go; this port does too.
- *            - `prefilter_eligible` stays `false` on every `CompiledRule`
- *              here — Task 1.8 wires in the keyword-prefilter prover
- *              (`Prefilter.hpp` / Go's `regexGuaranteesKeyword`).
+ *            - `prefilter_eligible` is set by `compile_rule` from
+ *              `Prefilter.hpp`'s `regex_guarantees_keyword(r.regex,
+ *              r.keywords)` (Go's `regexGuaranteesKeyword`, called through
+ *              `prefilterKeywords`): `true` only when the rule declares at
+ *              least one keyword AND the prover can show every match of
+ *              `r.regex` is guaranteed to contain one of them. Deliberately
+ *              parses `r.regex` itself, NOT `"(?m)" + r.regex` — mirrors
+ *              Go's `prefilterKeywords(rl.Regex, rl.Keywords)`, which parses
+ *              the un-prefixed source (the multiline flag doesn't affect
+ *              literal matching, so it's irrelevant to the proof). Unlike
+ *              Go's `CompiledRule`, this port has no separate
+ *              `PrefilterKeywords []string` field: when `prefilter_eligible`
+ *              is `true`, the scanner (Scanner.hpp) reuses `rule.keywords`
+ *              directly for the substring check — they are already
+ *              lowercased at YAML-load time (`RulesYaml.hpp`), exactly the
+ *              form Go's `PrefilterKeywords` stores, so no second copy is
+ *              needed.
+ *            - DEVIATION FROM GO — no `spdlog` in the engine: Go's
+ *              `Registry.PrefilterIneligibleRuleIDs()` exists purely so a
+ *              caller can log, at startup, which keyword-bearing rules the
+ *              prefilter had to skip (an operator-visibility aid, not a
+ *              correctness requirement — every one of those rules is still
+ *              always scanned, so recall is unaffected either way). This
+ *              header-only `Guard::` engine (phase1-interfaces.md: "no
+ *              Drogon/HTTP includes") has no logging dependency of its own
+ *              -- `spdlog` isn't used anywhere under `src/guard/` -- so
+ *              `Registry::prefilter_ineligible_rule_ids()` below is ported
+ *              as a pure data accessor with the exact same contract and
+ *              filter (`keywords` non-empty AND NOT `prefilter_eligible`,
+ *              sorted) — callers in a later phase (the app-layer service
+ *              startup path) are expected to log the returned list
+ *              themselves.
  *            - `ReloadableRegistry` ports `Reloadable`: `std::atomic<std::
  *              shared_ptr<const Registry>>` gives the same lock-free-ish
  *              publish/read pair as Go's `atomic.Pointer[Registry]` — GCC 13
@@ -68,6 +97,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cstddef>
 #include <functional>
@@ -82,6 +112,7 @@
 
 #include "guard/Errors.hpp"
 #include "guard/PlaceholderRegex.hpp"
+#include "guard/Prefilter.hpp"
 #include "guard/Rule.hpp"
 #include "guard/Unicode.hpp"
 #include "guard/Validators.hpp"
@@ -93,7 +124,10 @@ struct CompiledRule {
     std::shared_ptr<const RE2> re;              // "(?m)" + rule.regex
     std::shared_ptr<const RE2> placeholder_re;  // tolerant recognizer, capture 1 = number; null if blank placeholder
     std::size_t placeholder_len{0};             // bound for SSE pending buffer; 0 if placeholder_re is null
-    bool prefilter_eligible{false};             // always false until Task 1.8 wires the prover
+    // True iff rule.keywords is non-empty AND regex_guarantees_keyword(rule.regex, rule.keywords)
+    // (Prefilter.hpp) proved every match of the regex contains one of them. When true, the scanner
+    // reuses rule.keywords (already lowercased) directly for the substring pre-check.
+    bool prefilter_eligible{false};
 };
 
 namespace detail {
@@ -255,6 +289,14 @@ public:
             cr.placeholder_len = pp.max_len;
         }
 
+        // Keyword pre-filter eligibility (Task 1.8): parses r.regex itself
+        // (not "(?m)" + r.regex -- see the CompiledRule::prefilter_eligible
+        // and file-level doc comments). A rule with no keywords is never
+        // eligible -- regex_guarantees_keyword already returns false for an
+        // empty keyword list, but the explicit check here documents the
+        // short-circuit rather than relying on that implicitly.
+        cr.prefilter_eligible = !r.keywords.empty() && regex_guarantees_keyword(r.regex, r.keywords);
+
         return cr;
     }
 
@@ -282,6 +324,27 @@ public:
     std::size_t size() const { return rules_.size(); }
 
     const std::vector<CompiledRule>& all() const { return rules_; }
+
+    /**
+     * @brief Sorted ids of rules that declare keywords but are NOT eligible
+     *        for the keyword pre-filter (their regex doesn't guarantee a
+     *        keyword in every match). Such rules are always scanned; this
+     *        list exists purely for operator visibility. Ports Go's
+     *        `Registry.PrefilterIneligibleRuleIDs()` as a pure data
+     *        accessor -- see the file-level doc comment's "DEVIATION FROM
+     *        GO" note: this header-only engine has no logging dependency,
+     *        so (unlike Go, which only ever calls this to log at startup)
+     *        it's the caller's job to do something with the returned list.
+     */
+    std::vector<std::string> prefilter_ineligible_rule_ids() const {
+        std::vector<std::string> out;
+        for (const auto& cr : rules_) {
+            if (!cr.rule.keywords.empty() && !cr.prefilter_eligible)
+                out.push_back(cr.rule.id);
+        }
+        std::sort(out.begin(), out.end());
+        return out;
+    }
 
 private:
     std::vector<CompiledRule> rules_;

@@ -3,11 +3,17 @@
  * @brief Finds sensitive spans in text against a set of compiled rules, and
  *        coalesces overlapping hits into non-overlapping union spans.
  * @details Ports `pkg/guardrails/regex/scanners/sensitive/scan.go`'s
- *          unexported `scanRules` (the pre-prefilter entry point -- the
- *          keyword pre-filter itself lives in `Scanner.ScanRules`, one layer
- *          up in Go, and is out of scope here: `ScanOptions.prefilter_enabled`
- *          is accepted but a no-op passthrough until Task 1.8 wires
- *          `Prefilter.hpp`'s `regex_guarantees_keyword` prover in). Every
+ *          unexported `scanRules` PLUS `Scanner.ScanRules`'s keyword
+ *          pre-filter step (`filterByKeywords` / `containsAnyKeyword`) --
+ *          the two are fused into this file's single `scan_rules` entry
+ *          point rather than split across two layers the way Go's
+ *          `Scanner.ScanRules` (pre-filter) -> `scanRules` (regex fan-out)
+ *          are, since this port has no separate `Scanner` type wrapping a
+ *          `*Registry` yet (that lands in a later phase). See
+ *          `detail::filter_by_keywords` below for the pre-filter itself
+ *          (Task 1.8; ports `filterByKeywords`, scan.go:82-106) and the
+ *          `ScanOptions.prefilter_enabled` doc comment for how it composes
+ *          with the serial/parallel dispatch gate. Every
  *          divergence from the Go source below was confirmed by reading
  *          `scan.go` and its 837-line `scan_test.go` directly, not assumed.
  *
@@ -206,6 +212,7 @@
 
 #include "guard/Registry.hpp"
 #include "guard/Rule.hpp"
+#include "guard/Unicode.hpp"
 #include "guard/Validators.hpp"
 
 namespace Guard {
@@ -221,9 +228,16 @@ struct ScanMatch {
     const CompiledRule* rule;
 };
 
-/// `prefilter_enabled` is accepted but currently a no-op passthrough --
-/// Task 1.8 wires the keyword pre-filter (`Prefilter.hpp`'s
-/// `regex_guarantees_keyword`) in ahead of the scan. `max_workers`, if
+/// `prefilter_enabled` (Task 1.8): when true, `scan_rules` first drops every
+/// `prefilter_eligible` rule (`Registry.hpp`) whose `rule.keywords` (already
+/// lowercased at YAML-load time) are all absent from the text -- see
+/// `detail::filter_by_keywords`. A rule that is NOT `prefilter_eligible`
+/// (no keywords, or the prover couldn't prove the guarantee) is always kept,
+/// so this is recall-preserving by construction: enabling it can only ever
+/// remove work, never a match `scan_rules` would otherwise have returned.
+/// The filtered rule count (not the original) then feeds the existing
+/// serial/parallel dispatch gate below, mirroring Go's `ScanRules` (which
+/// filters, THEN calls `scanRules` on the filtered set). `max_workers`, if
 /// non-zero, overrides `std::thread::hardware_concurrency()` as the
 /// parallel-fan-out worker count (see `detail::compute_worker_count`) --
 /// mainly so tests can pin a deterministic worker count instead of
@@ -241,6 +255,54 @@ namespace detail {
 // BOTH text.size() >= 4096 AND rules.size() > 4.
 inline constexpr std::size_t kParallelTextThreshold = 4 * 1024;
 inline constexpr std::size_t kParallelRuleThreshold = 4;
+
+// Ports `filterByKeywords` + `containsAnyKeyword` (scan.go:82-106): drops
+// every prefilter_eligible rule whose keywords are all absent from `text`,
+// so the caller skips their regex entirely. A rule that is NOT
+// prefilter_eligible (no keywords declared, or Prefilter.hpp's prover
+// couldn't prove every match contains one) is always kept -- this is what
+// makes the pre-filter recall-preserving. `rules` may be a shared/reused
+// vector (Go's own comment on `filterByKeywords` makes the same point about
+// `rules []registry.CompiledRule` there), so this returns a freshly
+// allocated filtered view and never mutates the input.
+//
+// `text` is lowercased at most once (lazily, only once the first eligible
+// rule is seen), matching Go's `lowered` bool guard exactly: a rule set with
+// no eligible rules pays nothing and skips the whole body copy.
+//
+// A null `CompiledRule*` is passed through unfiltered rather than
+// dereferenced -- `scan_rules`'s own null-pointer contract
+// (`GuardScanner.NullCompiledRulePointerThrows`) is enforced downstream in
+// `scan_one_rule`, and must still fire the same way whether or not the
+// pre-filter is enabled.
+inline std::vector<const CompiledRule*> filter_by_keywords(std::string_view text,
+                                                            const std::vector<const CompiledRule*>& rules) {
+    std::string lower;
+    bool lowered = false;
+
+    std::vector<const CompiledRule*> out;
+    out.reserve(rules.size());
+    for (const CompiledRule* cr : rules) {
+        if (cr == nullptr || !cr->prefilter_eligible) {
+            out.push_back(cr);  // ineligible (or not yet validated) rules are always scanned
+            continue;
+        }
+        if (!lowered) {
+            lower = to_lower_utf8(text);
+            lowered = true;
+        }
+        bool hit = false;
+        for (const auto& kw : cr->rule.keywords) {
+            if (!kw.empty() && lower.find(kw) != std::string::npos) {
+                hit = true;
+                break;
+            }
+        }
+        if (hit)
+            out.push_back(cr);
+    }
+    return out;
+}
 
 /// The semantic span selected from one raw regex match, or `ok == false`
 /// if this match should be dropped entirely (mirrors `sensitiveSpan`'s
@@ -553,17 +615,29 @@ inline std::vector<ScanMatch> resolve_conflicts(std::vector<ScanMatch> matches) 
 inline std::vector<ScanMatch> scan_rules(std::string_view text,
                                          const std::vector<const CompiledRule*>& rules,
                                          const ScanOptions& opts = {}) {
-    // prefilter_enabled: no-op passthrough. See the file-level doc comment.
-    (void)opts.prefilter_enabled;
-
     if (rules.empty())
         return {};
 
+    // Task 1.8: apply the keyword pre-filter (if enabled) BEFORE the
+    // serial/parallel dispatch gate below, so the gate sees the (possibly
+    // smaller) filtered rule count -- mirrors Go's ScanRules, which filters
+    // first and only then calls scanRules on the filtered set. See
+    // detail::filter_by_keywords and the ScanOptions.prefilter_enabled doc
+    // comment for why this can only ever remove work, never a match.
+    std::vector<const CompiledRule*> filtered_storage;
+    const std::vector<const CompiledRule*>* active_rules = &rules;
+    if (opts.prefilter_enabled) {
+        filtered_storage = detail::filter_by_keywords(text, rules);
+        active_rules = &filtered_storage;
+        if (active_rules->empty())
+            return {};
+    }
+
     std::vector<ScanMatch> candidates;
-    if (text.size() < detail::kParallelTextThreshold || rules.size() <= detail::kParallelRuleThreshold) {
-        candidates = detail::scan_serial(text, rules);
+    if (text.size() < detail::kParallelTextThreshold || active_rules->size() <= detail::kParallelRuleThreshold) {
+        candidates = detail::scan_serial(text, *active_rules);
     } else {
-        candidates = detail::scan_parallel(text, rules, opts);
+        candidates = detail::scan_parallel(text, *active_rules, opts);
     }
     return detail::resolve_conflicts(std::move(candidates));
 }
