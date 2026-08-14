@@ -173,6 +173,23 @@ std::string read_one_of(const YAML::Node& node,
     return {};
 }
 
+// Parses one `positives[]` entry, appending to `issues` (naming `rule_id`)
+// on any schema violation. Factored out of load_corpus() so its body stays
+// at a shallow enough indent for the read_one_of() calls to fit on one line.
+PositiveCase parse_positive_case(const YAML::Node& p, const std::string& rule_id, std::vector<std::string>& issues) {
+    PositiveCase pc;
+    pc.text = read_one_of(p, "text", "text_b64", rule_id, issues);
+    if (p["expect_span"] || p["expect_span_b64"]) {
+        pc.expect_span = read_one_of(p, "expect_span", "expect_span_b64", rule_id, issues);
+        pc.has_expect_span = true;
+    } else {
+        // Go pins an exact span on every positive case in the corpus; an
+        // absent expect_span here would silently weaken the port.
+        issues.push_back("rule '" + rule_id + "': missing mandatory expect_span");
+    }
+    return pc;
+}
+
 LoadedCorpus load_corpus() {
     const YAML::Node root = YAML::LoadFile(corpus_path());
     LoadedCorpus result;
@@ -187,20 +204,8 @@ LoadedCorpus load_corpus() {
         entry.rule_id = c["rule_id"].as<std::string>();
 
         if (const YAML::Node pos = c["positives"]) {
-            for (const auto& p : pos) {
-                PositiveCase pc;
-                pc.text = read_one_of(p, "text", "text_b64", entry.rule_id, result.schema_issues);
-                if (p["expect_span"] || p["expect_span_b64"]) {
-                    pc.expect_span = read_one_of(p, "expect_span", "expect_span_b64", entry.rule_id,
-                                                 result.schema_issues);
-                    pc.has_expect_span = true;
-                } else {
-                    result.schema_issues.push_back("rule '" + entry.rule_id +
-                                                   "': positive case missing expect_span (mandatory -- every "
-                                                   "positive in the Go corpus pins an exact span)");
-                }
-                entry.positives.push_back(std::move(pc));
-            }
+            for (const auto& p : pos)
+                entry.positives.push_back(parse_positive_case(p, entry.rule_id, result.schema_issues));
         }
 
         const bool has_plain_neg = static_cast<bool>(c["negatives"]);
@@ -351,9 +356,7 @@ TEST_F(GuardRuleCorpus, CaseCountsMatchGoReference) {
             << "rule '" << entry.rule_id << "': negative count drifted from guard_rule_cases.counts.yaml";
     }
     for (const auto& count_entry : *counts_) {
-        EXPECT_NE(seen.find(count_entry.first), seen.end())
-            << "guard_rule_cases.counts.yaml has an entry for '" << count_entry.first
-            << "' with no matching corpus rule";
+        EXPECT_NE(seen.find(count_entry.first), seen.end()) << "stale rule in counts.yaml: " << count_entry.first;
     }
 }
 
