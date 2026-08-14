@@ -185,9 +185,25 @@ TEST(GuardJson, FindValueEmptyDocumentReturnsNullopt) {
     EXPECT_FALSE(Guard::Json::find_value("   ", {key("a")}).has_value());
 }
 
-TEST(GuardJson, FindValueTrailingCommaReturnsNullopt) {
+TEST(GuardJson, FindValueSucceedsEvenWithTrailingCommaAfterTheFoundValue) {
+    // find_value is a lazy scanner (see the file-level doc comment): it
+    // returns as soon as the requested key is found and never inspects
+    // anything after the value it returns. A trailing comma later in the
+    // SAME object (which valid() correctly rejects -- see
+    // ValidRejectsMalformedStructures) is simply never visited here,
+    // because "a" is the first (and only) key scanned.
     const std::string doc = R"({"a":1,})";
-    EXPECT_FALSE(Guard::Json::find_value(doc, {key("a")}).has_value());
+    const auto span = Guard::Json::find_value(doc, {key("a")});
+    ASSERT_TRUE(span.has_value());
+    EXPECT_EQ(span_text(doc, *span), "1");
+}
+
+TEST(GuardJson, FindValueFailsWhenTraversalMustScanPastAMalformedTrailingComma) {
+    // Unlike the case above, a MISSING key forces the scan to continue
+    // past the trailing comma looking for more keys -- where it correctly
+    // fails: a bare '}' immediately after ',' is not a valid next key.
+    const std::string doc = R"({"a":1,})";
+    EXPECT_FALSE(Guard::Json::find_value(doc, {key("missing")}).has_value());
 }
 
 TEST(GuardJson, FindValueNeverThrowsOnAdversarialInput) {
