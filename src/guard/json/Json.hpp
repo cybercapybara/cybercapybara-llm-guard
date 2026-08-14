@@ -291,21 +291,12 @@ struct WalkFrame {
 // (invalidating any previously-held `WalkFrame&`/index taken before this
 // call) and returns the offset just past the bracket.
 //
-// Deliberately a separate, explicitly NOT-inlined function (not a lambda
-// nested in `skip_value`, which is how this was first written): GCC 13 at
-// -O3 has a known false positive (`-Werror=stringop-overflow` on
-// `vector<WalkFrame>::_M_realloc_insert`'s reallocation, reported as
-// "writing 1 byte into a region of size 0" with a nonsensical negative
-// offset) that reliably reproduces when this function's two `push_back`
-// call sites get inlined into `skip_value` at several of its own call
-// sites simultaneously -- confirmed by testing `frames.reserve()` first
-// (no effect: the false positive isn't about the first allocation) and
-// only going away once inlining itself was prevented. `noinline` keeps
-// every `push_back` here behind one real, non-inlined call, which
-// structurally cannot produce the multi-"inlined from" chain the bug
-// needs -- a code-shape change to dodge a compiler bug, not a suppression
-// of the warning class (which stays fully enabled and gating everywhere
-// else).
+// A separate, explicitly NOT-inlined function (not a lambda nested in
+// `skip_value`, which is how this was first written) -- GCC 13 at -O3
+// mis-inlines this function's two `push_back` call sites into `skip_value`
+// at several of its own call sites simultaneously, and `noinline` avoids
+// that. It is NOT, by itself, enough to silence the false positive below;
+// see that comment for the rest of the story.
 GUARD_JSON_NOINLINE inline std::optional<std::size_t> open_or_scalar(std::string_view doc,
                                                                      std::size_t p,
                                                                      std::vector<WalkFrame>& frames) {
@@ -322,6 +313,33 @@ GUARD_JSON_NOINLINE inline std::optional<std::size_t> open_or_scalar(std::string
         return match_literal(doc, p, "false") ? std::optional<std::size_t>(p + 5) : std::nullopt;
     if (c == 'n')
         return match_literal(doc, p, "null") ? std::optional<std::size_t>(p + 4) : std::nullopt;
+
+    // GCC 13 at -O3 has a confirmed false positive on these two
+    // `push_back` calls: `-Werror=stringop-overflow` on
+    // `vector<WalkFrame>::_M_realloc_insert`/`construct_at`'s inlined
+    // placement-new, reported as "writing 1 byte into a region of size 0"
+    // at a nonsensical NEGATIVE offset into an object GCC itself computed
+    // as ~2^63 bytes -- internally self-contradictory, and independent of
+    // both initial capacity (tried `frames.reserve(...)` first: no effect)
+    // and caller-side inlining depth (tried extracting this whole function
+    // with `noinline`, above: reduced the backtrace to a single inlining
+    // chain but did not remove the warning). `WalkFrame` is a 2-byte
+    // `{char; enum class : uint8_t;}` aggregate; this specific
+    // size/layout combination through `vector::push_back` under `-O3`
+    // matches publicly reported GCC 12/13 `-Wstringop-overflow`
+    // false-positive reports (e.g. GCC PR 106252-class reallocation
+    // mis-analysis) rather than anything this scanner does with the
+    // vector -- `frames` is a plain local `std::vector`, standard
+    // `push_back` on a POD, nothing more exotic. Suppressed at exactly
+    // these two call sites (not project-wide, not for the warning class
+    // in general -- `-Wstringop-overflow` stays fully enabled and gating
+    // for every other line in this codebase) with a paired push/pop so
+    // the scope is unambiguous. Not reachable on Clang, which has no
+    // `-Wstringop-overflow` diagnostic to begin with.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
     if (c == '{') {
         frames.push_back(WalkFrame{'{', WalkState::ObjectStart});
         return p + 1;
@@ -330,6 +348,9 @@ GUARD_JSON_NOINLINE inline std::optional<std::size_t> open_or_scalar(std::string
         frames.push_back(WalkFrame{'[', WalkState::ArrayStart});
         return p + 1;
     }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
     return std::nullopt;
 }
 
