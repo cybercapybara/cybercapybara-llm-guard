@@ -16,10 +16,12 @@
  * until Task 1.8; see Scanner.hpp's file-level doc comment).
  */
 
+#include <algorithm>
 #include <cstddef>
 #include <memory>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -164,6 +166,66 @@ TEST(GuardScanner, InvalidCaptureGroupIndexSkipsMatch) {
     EXPECT_TRUE(matches.empty());
 }
 
+TEST(GuardScanner, CaptureGroupZeroSelectsFullMatch) {
+    // Go's sensitiveSpan indexes `loc[group*2 : group*2+2]`, so a
+    // configured group of exactly 0 lands on `loc[0:2]` -- the full-match
+    // slot -- and is treated like the full match rather than skipped. This
+    // is genuine Go behavior (see Scanner.hpp's file-level doc comment),
+    // not merely defensive skip territory, so it's pinned distinctly from
+    // InvalidCaptureGroupIndexSkipsMatch above. Registry::compile_rule
+    // rejects capture_groups entries <= 0, so this bypasses it exactly
+    // like the same-style test above.
+    Guard::CompiledRule cr;
+    cr.rule = make_rule("group.zero", "token=([a-z]+)", {0}, "TOKEN");
+    cr.re = std::make_shared<RE2>("(?m)" + cr.rule.regex, RE2::Quiet);
+    ASSERT_TRUE(cr.re->ok());
+
+    std::vector<const Guard::CompiledRule*> rules{&cr};
+    auto matches = Guard::scan_rules("token=abc", rules);
+
+    ASSERT_EQ(matches.size(), 1u);
+    // Full match "token=abc" (9 bytes), NOT just the captured "abc" (3
+    // bytes) that capture_groups={1} would select.
+    expect_match(matches[0], 0, 9, "group.zero");
+}
+
+TEST(GuardScanner, NullCompiledRulePointerThrows) {
+    // scan_rules takes a caller-supplied vector of raw pointers; nothing
+    // upstream guarantees every entry is non-null the way Registry's own
+    // accessors do. A literal null entry (as opposed to a valid pointer to
+    // a CompiledRule whose `re` member happens to be null, covered by
+    // ParallelWorkerExceptionSurfacesAsRuntimeError /
+    // SerialWorkerNullRegexSurfacesAsRuntimeError below) must fail the same
+    // documented way rather than crash.
+    auto fx = build_rules({make_rule("ok.rule", "secret")});
+    std::vector<const Guard::CompiledRule*> rules = fx.rules;
+    rules.push_back(nullptr);
+
+    EXPECT_THROW(Guard::scan_rules("public secret text", rules), std::runtime_error);
+}
+
+TEST(GuardScanner, SerialWorkerNullRegexSurfacesAsRuntimeError) {
+    // ParallelWorkerExceptionSurfacesAsRuntimeError (below) only exercises
+    // the parallel branch. The null-re precondition check lives in
+    // scan_one_rule, shared by both branches, but it needs its own pin on
+    // the serial path (<= kParallelRuleThreshold rules) so a future change
+    // that special-cases either branch can't silently stop checking here.
+    auto fx = build_rules({
+        make_rule("r1", "aaa", {}, "A"),
+        make_rule("r2", "bbb", {}, "B"),
+    });
+
+    Guard::CompiledRule broken;
+    broken.rule = make_rule("boom", "unused", {}, "X");
+    // broken.re is left null -- forces the defensive throw in scan_one_rule.
+
+    std::vector<const Guard::CompiledRule*> rules = fx.rules;
+    rules.push_back(&broken);
+    ASSERT_LE(rules.size(), Guard::detail::kParallelRuleThreshold);
+
+    EXPECT_THROW(Guard::scan_rules("short text", rules), std::runtime_error);
+}
+
 // ── Filtering: no-hit / min_length / validators ───────────────────────────
 
 TEST(GuardScanner, NoRegexHitReturnsEmpty) {
@@ -230,6 +292,65 @@ TEST(GuardScanner, ResultsAreSortedByStartRegardlessOfRuleOrder) {
     expect_match(matches[0], 0, 3, "first");
     expect_match(matches[1], 4, 7, "second");
     expect_match(matches[2], 8, 11, "third");
+}
+
+// ── Empty-match advance (nullable regex) ──────────────────────────────────
+// Every other regex in this file is incapable of matching empty, so the
+// `mend == mstart` branch in scan_one_rule (accept/reject bookkeeping, the
+// mstart-based advance, and the width==0/pos=end+1 termination path) had
+// zero coverage before these two -- EmptyTextIsDropped above short-circuits
+// before the loop even runs (text.empty()), so it doesn't reach this code
+// either. Both traced by hand against the algorithm before being written.
+
+TEST(GuardScanner, NullableRegexOverMultiByteTextFindsOnlyNonEmptySpan) {
+    // "日本aa語": bytes [0,3)=日 [3,6)=本 [6,8)="aa" [8,11)=語. `a*` finds
+    // an empty match at 0 (accepted, dropped -- empty span), advances 3
+    // bytes past 日's lead byte via decode_utf8 (not a raw 1-byte skip --
+    // that would drift into 日's continuation bytes and could re-match
+    // there); an empty match at 3 (accepted, dropped), advances past 本;
+    // "aa" itself as one non-empty match [6,8) (kept, pos jumps to 8); an
+    // empty match at 8 == prevMatchEnd is REJECTED -- the exact case Go's
+    // allMatches guards against (a zero-width match redundantly reported
+    // right where a real match just ended); advances past 語; a final
+    // empty match at end-of-text (11) is accepted but dropped (empty
+    // span); pos becomes end+1 and the loop terminates. Net: exactly one
+    // surviving match.
+    auto fx = build_rules({make_rule("nullable.run", "a*")});
+    const std::string text = "日本aa語";
+
+    auto matches = Guard::scan_rules(text, fx.rules);
+
+    ASSERT_EQ(matches.size(), 1u);
+    expect_match(matches[0], 6, 8, "nullable.run");
+    EXPECT_EQ(text.substr(matches[0].start, matches[0].end - matches[0].start), "aa");
+}
+
+TEST(GuardScanner, NullableAlternationOnMultilineTextKeepsOnlyNonEmptyBranch) {
+    // `line\d+|$` -- a nullable alternation (the multiline `$` that
+    // Registry::compile_rule's "(?m)" prefix enables) paired with a
+    // non-empty branch that can never compete for the same starting
+    // position as `$` (the literal "line" prefix and a line-boundary
+    // position are mutually exclusive by construction), so this test makes
+    // no assumption about RE2's alternation-order/tie-break rules. Over
+    // "line1\nline2\nline3" (no trailing newline), `line\d+` matches all
+    // three "lineN" tokens as non-empty spans; the multiline `$` fires
+    // (empty) immediately before each '\n' and at end-of-text, but every
+    // one of those positions coincides with the previous match's end, so
+    // each is rejected by the "not immediately after the previous match"
+    // rule -- exercising that reject path again on a differently-shaped
+    // regex. Net: exactly the three non-empty matches survive, proving
+    // both that they aren't disturbed by the empty-match machinery and
+    // that the loop terminates (a hang here would time out the whole test
+    // binary, not just this test).
+    auto fx = build_rules({make_rule("lines.run", R"(line\d+|$)")});
+    const std::string text = "line1\nline2\nline3";
+
+    auto matches = Guard::scan_rules(text, fx.rules);
+
+    ASSERT_EQ(matches.size(), 3u);
+    expect_match(matches[0], 0, 5, "lines.run");
+    expect_match(matches[1], 6, 11, "lines.run");
+    expect_match(matches[2], 12, 17, "lines.run");
 }
 
 // ── Overlap coalescing (ResolveConflicts) ─────────────────────────────────
@@ -437,6 +558,80 @@ TEST(GuardScanner, ParallelMatchesSerialOnLargeText) {
     }
 }
 
+TEST(GuardScanner, CrossBucketOverlapCoalescesUnderRealParallelPath) {
+    // ParallelMatchesSerialOnLargeText's needles are 4000 bytes apart and
+    // never overlap, so resolve_conflicts there is never asked to merge
+    // candidates that came out of DIFFERENT parallel buckets -- coalescing
+    // across a bucket boundary was untested. Here rule index 2
+    // ("leftpart") and rule index 7 ("partright") -- differing by 5, not a
+    // multiple of max_workers=4, so `i % num_workers` puts them in
+    // different buckets (2%4=2, 7%4=3) -- are crafted to match OVERLAPPING
+    // spans of the same embedded literal "LEFTPARTRIGHT". The assertion
+    // calls the real public Guard::scan_rules directly once (no manual
+    // detail::resolve_conflicts call on either side), so this exercises
+    // the actual production dispatch + cross-bucket merge + coalescing
+    // pipeline end-to-end, not just the coalescing sweep in isolation.
+    std::vector<Guard::Rule> defs{
+        make_rule("m0", "MARKER_A"),          // index 0 -> bucket 0
+        make_rule("m1", "MARKER_B"),          // index 1 -> bucket 1
+        make_rule("leftpart", "LEFTPART"),    // index 2 -> bucket 2
+        make_rule("m3", "MARKER_C"),          // index 3 -> bucket 3
+        make_rule("m4", "MARKER_D"),          // index 4 -> bucket 0
+        make_rule("m5", "MARKER_E"),          // index 5 -> bucket 1
+        make_rule("m6", "MARKER_F"),          // index 6 -> bucket 2
+        make_rule("partright", "PARTRIGHT"),  // index 7 -> bucket 3
+    };
+    auto fx = build_rules(defs);
+    ASSERT_EQ(fx.rules.size(), 8u);
+    ASSERT_GT(fx.rules.size(), Guard::detail::kParallelRuleThreshold);
+
+    std::string text(5 * 1024, 'x');
+    const std::vector<std::pair<std::size_t, std::string>> placements{
+        {100, "MARKER_A"},
+        {600, "MARKER_B"},
+        {1100, "MARKER_C"},
+        {1600, "MARKER_D"},
+        {2100, "MARKER_E"},
+        {2600, "MARKER_F"},
+        {3100, "LEFTPARTRIGHT"},
+    };
+    for (const auto& [offset, needle] : placements)
+        text.replace(offset, needle.size(), needle);
+
+    ASSERT_GE(text.size(), Guard::detail::kParallelTextThreshold);
+
+    Guard::ScanOptions opts;
+    opts.max_workers = 4;
+    auto matches = Guard::scan_rules(text, fx.rules, opts);
+
+    // 6 independent markers + 1 coalesced ("leftpart" + "partright") union.
+    ASSERT_EQ(matches.size(), 7u);
+
+    const auto coalesced = std::find_if(
+        matches.begin(), matches.end(), [](const Guard::ScanMatch& m) { return m.rule->rule.id == "partright"; });
+    ASSERT_NE(coalesced, matches.end());
+    const std::string leftpartright = "LEFTPARTRIGHT";
+    const auto union_pos = text.find(leftpartright);
+    ASSERT_NE(union_pos, std::string::npos);
+    // "PARTRIGHT" (9 bytes) is longer than "LEFTPART" (8 bytes), so
+    // "partright" is the coalesced pair's representative -- the union span
+    // is [union_pos, union_pos+13), not either constituent's own span.
+    expect_match(*coalesced, union_pos, union_pos + leftpartright.size(), "partright");
+
+    // "leftpart" -- the shorter overlapping constituent -- must NOT appear
+    // as its own separate match; it was absorbed into the union above.
+    const auto shadowed = std::find_if(
+        matches.begin(), matches.end(), [](const Guard::ScanMatch& m) { return m.rule->rule.id == "leftpart"; });
+    EXPECT_EQ(shadowed, matches.end());
+
+    // The six independent markers all survive untouched.
+    for (const std::string& id : {"m0", "m1", "m3", "m4", "m5", "m6"}) {
+        const auto found = std::find_if(
+            matches.begin(), matches.end(), [&id](const Guard::ScanMatch& m) { return m.rule->rule.id == id; });
+        EXPECT_NE(found, matches.end()) << "missing match for rule " << id;
+    }
+}
+
 TEST(GuardScanner, ParallelWorkerExceptionSurfacesAsRuntimeError) {
     // Ports TestScanRules_WorkerPanicRecoveredAsError: a broken rule mixed
     // into a rule set large enough to force the parallel path must surface
@@ -465,4 +660,38 @@ TEST(GuardScanner, ParallelWorkerExceptionSurfacesAsRuntimeError) {
     ASSERT_GT(rules.size(), Guard::detail::kParallelRuleThreshold);
 
     EXPECT_THROW(Guard::scan_rules(text, rules), std::runtime_error);
+}
+
+// ── Prefilter passthrough (Task 1.8 handoff) ──────────────────────────────
+
+TEST(GuardScanner, PrefilterEnabledIsANoOpPassthrough) {
+    // ScanOptions.prefilter_enabled is accepted but not yet wired -- Task
+    // 1.8 implements the keyword pre-filter (Prefilter.hpp's
+    // regex_guarantees_keyword). Pinning this contract now means a future
+    // change that starts consulting the flag without finishing the real
+    // implementation can't silently ship a behavior change under this
+    // task's cover: true and false must produce identical output today.
+    auto fx = build_rules({
+        make_rule("r1", "token=([a-z]+)", {1}, "TOKEN"),
+        make_rule("r2", "secret=([a-z]+)", {1}, "SECRET"),
+    });
+    const std::string text = "token=abc secret=xyz";
+
+    Guard::ScanOptions off;
+    off.prefilter_enabled = false;
+    Guard::ScanOptions on;
+    on.prefilter_enabled = true;
+
+    auto matches_off = Guard::scan_rules(text, fx.rules, off);
+    auto matches_on = Guard::scan_rules(text, fx.rules, on);
+
+    ASSERT_EQ(matches_off.size(), 2u);
+    ASSERT_EQ(matches_off.size(), matches_on.size());
+    for (std::size_t i = 0; i < matches_off.size(); ++i) {
+        EXPECT_EQ(matches_off[i].start, matches_on[i].start);
+        EXPECT_EQ(matches_off[i].end, matches_on[i].end);
+        ASSERT_NE(matches_off[i].rule, nullptr);
+        ASSERT_NE(matches_on[i].rule, nullptr);
+        EXPECT_EQ(matches_off[i].rule->rule.id, matches_on[i].rule->rule.id);
+    }
 }

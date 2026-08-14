@@ -15,8 +15,9 @@
  *          `scanRule` + `buildMatch` + `sensitiveSpan` fused into one pass,
  *          using `RE2::Match(text, pos, end, RE2::UNANCHORED, groups,
  *          ngroups)` in a hand-rolled loop that reproduces Go's
- *          `FindAllStringSubmatchIndex(text, -1)` semantics byte-for-byte,
- *          including its empty-match advance rule (`regexp.go`'s
+ *          `FindAllStringSubmatchIndex(text, -1)` semantics -- OUTPUT-
+ *          equivalent to Go, not a byte-for-byte port of its iteration
+ *          count, including its empty-match advance rule (`regexp.go`'s
  *          `allMatches`, read directly, not guessed):
  *            - `pos` starts at 0; the loop runs while `pos <= len(text)`.
  *            - A non-empty match advances `pos` to the match's end and is
@@ -25,14 +26,37 @@
  *              exactly at the previous match's end (`mstart ==
  *              prevMatchEnd`) -- this is what stops a zero-width match from
  *              being reported redundantly right after a real match ends at
- *              the same byte. Either way (accepted or not), `pos` advances
- *              by one *rune* width (`utf8.DecodeRuneInString`), or to
- *              `end + 1` if already at end-of-text -- Go decodes a rune
- *              rather than one byte so the loop can't re-match inside a
- *              multi-byte sequence it just skipped. `Guard::detail::
- *              decode_utf8` (Validators.hpp) already ports that exact
- *              decoder (same U+FFFD-on-invalid-byte, width-1 fallback), so
- *              it's reused here rather than duplicated.
+ *              the same byte. Either way (accepted or not), Go advances
+ *              `pos` by one *rune* width decoded AT `pos` itself
+ *              (`utf8.DecodeRuneInString(s[pos:end])`), or to `end + 1` if
+ *              already at end-of-text. This port instead decodes AT
+ *              `mstart` (the match's own start) and advances from there --
+ *              a deliberate divergence, not an oversight, because `pos` and
+ *              `mstart` can differ: an UNANCHORED search launched from
+ *              `pos` returns the *leftmost reachable* match, which for a
+ *              not-everywhere-nullable pattern (e.g. an alternation like
+ *              `\n|$`) can start strictly after `pos` whenever nothing in
+ *              `[pos, mstart)` can begin a match -- that range is exactly
+ *              why the search skipped past it. Proof sketch that the two
+ *              are output-equivalent despite this: any extra iterations
+ *              Go's `pos`-based advance causes beyond what this port runs
+ *              are re-discoveries of that SAME `mstart` position (nothing
+ *              in `[pos, mstart)` can be a match start, so re-searching
+ *              from anywhere in that range lands right back on `mstart`),
+ *              and every such re-discovery is itself an empty match --
+ *              either rejected here (`mstart == prevMatchEnd`, having
+ *              already been counted once) or accepted-then-dropped by
+ *              `sensitive_span` (an empty span is always dropped) -- so it
+ *              contributes nothing to the delivered match set either way.
+ *              Decoding at `mstart` instead skips straight past those
+ *              guaranteed-empty re-discoveries, producing the identical
+ *              final (filtered, sorted) match list in strictly fewer loop
+ *              iterations. Go decodes a rune rather than one byte so the
+ *              loop can't re-match inside a multi-byte sequence it just
+ *              skipped. `Guard::detail::decode_utf8` (Validators.hpp)
+ *              already ports that exact decoder (same U+FFFD-on-invalid-
+ *              byte, width-1 fallback), so it's reused here rather than
+ *              duplicated.
  *            - `RE2::Match`'s own doc comment carries a caveat this port
  *              leans on directly: "Passing text == absl::string_view() ...
  *              it will not be possible to tell whether submatch i matched
@@ -75,7 +99,22 @@
  *          every one of them came through that path (see
  *          `GuardScanner.InvalidCaptureGroupIndexSkipsMatch` in the test
  *          file, which builds one that didn't, exactly like `scan_test.go`'s
- *          own `TestScannerScan_InvalidCaptureGroupIndexesAreSkipped`).
+ *          own `TestScannerScan_InvalidCaptureGroupIndexesAreSkipped`). A
+ *          configured group of exactly `0` is NOT skipped, and is not
+ *          "defensive parity" with anything -- it is genuine Go behavior:
+ *          `sensitiveSpan`'s `groupIdx := group * 2` makes `group == 0`
+ *          index straight into `loc[0:2]`, the full-match slot, so Go
+ *          silently treats a configured `0` exactly like the full match.
+ *          `Registry::compile_rule` rejects `capture_groups` entries `<= 0`
+ *          at compile time, so this is unreachable through the normal
+ *          compile path (see `GuardScanner.CaptureGroupZeroSelectsFullMatch`,
+ *          which builds a raw `CompiledRule` to reach it) -- but a
+ *          faithful port matches Go's actual behavior here rather than
+ *          inventing a stricter divergent one. Only a genuinely negative
+ *          group index is defensive-skipped (Go's own guard doesn't cover
+ *          it either, but `loc[negative]` would panic there; RE2 has
+ *          nothing to mirror for that case, so this port just skips it
+ *          rather than indexing out of bounds).
  *
  *          **Drop conditions**, checked in `sensitiveSpan`/`scanRule`
  *          order: selected span empty -> drop; `rule.min_length > 0 &&
@@ -139,7 +178,7 @@
  *          repo's CI runs ASan+UBSan) is supposed to catch, not paper over
  *          -- so this port does not attempt to "recover" from a crash.
  *          Instead, `scan_one_rule` has an explicit precondition check
- *          (`if (!cr.re) throw ...`) that raises an ordinary C++ exception
+ *          (`if (!cr->re) throw ...`) that raises an ordinary C++ exception
  *          on exactly the same manufactured input (a `CompiledRule` with a
  *          null `re`), which a worker's `std::async` task then surfaces
  *          through its `std::future` the normal way. The observable
@@ -232,12 +271,20 @@ inline SensitiveSpan sensitive_span(const std::vector<std::string_view>& groups,
 
     const std::size_t ngroups = groups.size();
     for (int group : rule.masking.capture_groups) {
-        // Out-of-range (including <= 0) is defensive -- Registry::
-        // compile_rule already rejects this at compile time, but
-        // scan_rules accepts raw CompiledRule* and must not assume every
-        // one of them was built through that path. Mirrors Go's
-        // `groupIdx+1 >= len(loc)` skip.
-        if (group <= 0 || static_cast<std::size_t>(group) >= ngroups)
+        // group == 0 is NOT skipped: Go's `groupIdx := group * 2` makes
+        // group 0 index straight into `loc[0:2]` -- the full match slot --
+        // so `sensitiveSpan` treats a configured `0` exactly like the
+        // full match, and this port matches that behavior rather than
+        // inventing a stricter rejection. Only a negative group is
+        // defensive-skipped here (Go's `groupIdx+1 >= len(loc)` guard
+        // doesn't cover negative indexes either, but `loc[negative]`
+        // would panic in Go; RE2 has no test/behavior to mirror for that
+        // case, so this port just skips it rather than indexing OOB).
+        // Out-of-range-above is the same defensive story as before --
+        // Registry::compile_rule already rejects both cases at compile
+        // time, but scan_rules accepts raw CompiledRule* and must not
+        // assume every one of them was built through that path.
+        if (group < 0 || static_cast<std::size_t>(group) >= ngroups)
             continue;
         const std::string_view g = groups[static_cast<std::size_t>(group)];
         if (g.data() == nullptr)
@@ -255,11 +302,22 @@ inline SensitiveSpan sensitive_span(const std::vector<std::string_view>& groups,
 // see the file-level doc comment for the empty-match advance rule this
 // reproduces), and for each surviving match applies span selection +
 // min_length + validators, appending accepted hits to `out`.
-inline void scan_one_rule(std::string_view text, const CompiledRule& cr, std::vector<ScanMatch>& out) {
-    if (!cr.re) {
+inline void scan_one_rule(std::string_view text, const CompiledRule* cr, std::vector<ScanMatch>& out) {
+    if (!cr) {
+        // `rules` is caller-supplied (`scan_rules`'s own parameter, or a
+        // hand-built vector in a test); nothing upstream of this function
+        // guarantees every entry is non-null the way Registry::for_data_types
+        // and Registry::by_id do for their own return values. Dereferencing
+        // a null CompiledRule* would be a real crash, not the recoverable
+        // "broken rule" scenario `!cr->re` below models -- guard it
+        // separately so a null entry fails the same documented way
+        // (std::runtime_error, caller fails open) instead of crashing.
+        throw std::runtime_error("scan_rules: rules[] contains a null CompiledRule pointer");
+    }
+    if (!cr->re) {
         // Deliberate C++ stand-in for Go's recovered nil-Re panic -- see
         // the file-level doc comment's "Parallel fan-out" section.
-        throw std::runtime_error("scan_rules: compiled rule '" + cr.rule.id + "' has a null regex");
+        throw std::runtime_error("scan_rules: compiled rule '" + cr->rule.id + "' has a null regex");
     }
     // RE2::Match's empty-text caveat -- see the file-level doc comment.
     // Provably a no-op short-circuit: any match on empty text is itself an
@@ -267,7 +325,7 @@ inline void scan_one_rule(std::string_view text, const CompiledRule& cr, std::ve
     if (text.empty())
         return;
 
-    const RE2& re = *cr.re;
+    const RE2& re = *cr->re;
     const int ngroups = re.NumberOfCapturingGroups() + 1;
     const std::size_t end = text.size();
     std::size_t pos = 0;
@@ -287,6 +345,23 @@ inline void scan_one_rule(std::string_view text, const CompiledRule& cr, std::ve
             // previous match ended (regexp.go's allMatches).
             if (static_cast<std::ptrdiff_t>(mstart) == prev_match_end)
                 accept = false;
+            // Advances from `mstart` (the match's own start), not from
+            // `pos` (this iteration's search floor) the way Go's `pos +=
+            // width` does -- output-equivalent to Go, not byte-for-byte:
+            // when the leftmost reachable match starts strictly after
+            // `pos` (nothing in `[pos, mstart)` can start a match, which is
+            // exactly why the unanchored search skipped past it), Go's
+            // pos-based advance can re-search that same dead zone and
+            // re-discover the identical empty match one or more extra
+            // times before finally moving past it -- every one of those
+            // extra rediscoveries is itself empty, so it is either
+            // rejected here (adjacent-to-prior-match) or accepted-then-
+            // dropped by sensitive_span (empty span always drops); either
+            // way it contributes nothing to the delivered match set.
+            // Advancing straight from `mstart` instead skips those
+            // guaranteed-empty rediscoveries outright, so the final
+            // (sorted, filtered) match list is identical to Go's while
+            // this loop runs strictly fewer iterations.
             const std::size_t width = (mstart < end) ? decode_utf8(text, mstart).length : 0;
             pos = (width > 0) ? mstart + width : end + 1;
         } else {
@@ -297,16 +372,16 @@ inline void scan_one_rule(std::string_view text, const CompiledRule& cr, std::ve
         if (!accept)
             continue;
 
-        const SensitiveSpan span = sensitive_span(groups, text, cr.rule);
+        const SensitiveSpan span = sensitive_span(groups, text, cr->rule);
         if (!span.ok)
             continue;
         const std::size_t len = span.end - span.start;
-        if (cr.rule.min_length > 0 && len < cr.rule.min_length)
+        if (cr->rule.min_length > 0 && len < cr->rule.min_length)
             continue;
-        if (!passes_validators(text.substr(span.start, len), cr.rule))
+        if (!passes_validators(text.substr(span.start, len), cr->rule))
             continue;
 
-        out.push_back(ScanMatch{span.start, span.end, &cr});
+        out.push_back(ScanMatch{span.start, span.end, cr});
     }
 }
 
@@ -318,7 +393,7 @@ inline void scan_one_rule(std::string_view text, const CompiledRule& cr, std::ve
 inline std::vector<ScanMatch> scan_serial(std::string_view text, const std::vector<const CompiledRule*>& rules) {
     std::vector<ScanMatch> all;
     for (const CompiledRule* cr : rules)
-        scan_one_rule(text, *cr, all);
+        scan_one_rule(text, cr, all);
     return all;
 }
 
