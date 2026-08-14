@@ -168,8 +168,7 @@ std::string read_one_of(const YAML::Node& node,
     if (has_b64 && !has_plain)
         return decode_field(node[b64_key]);
 
-    issues.push_back("rule '" + rule_id + "': expected exactly one of '" + plain_key + "'/'" + b64_key +
-                      "', found " + std::to_string(static_cast<int>(has_plain) + static_cast<int>(has_b64)));
+    issues.push_back("rule '" + rule_id + "': expected exactly one of '" + plain_key + "'/'" + b64_key + "'");
     return {};
 }
 
