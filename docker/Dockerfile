@@ -4,7 +4,15 @@ ARG APP_BINARY=llm_guard
 ARG TEST_BINARY=llm_guard_tests_unit
 
 # Stage 1: Build environment
-FROM ubuntu:24.04 AS builder
+#
+# Split in two: `toolchain` ends with the dependency tree installed but BEFORE
+# any source is copied, `builder` adds the sources and compiles. The split is
+# purely structural — the layer sequence, and therefore every cache key on the
+# builder path, is unchanged — and it exists so the TSan stages further down
+# can branch off the deps layer instead of hanging off `builder`. Branching off
+# `builder` would put them after `COPY . .`, i.e. every source edit would
+# invalidate the ~30-minute instrumented dependency build.
+FROM ubuntu:24.04 AS toolchain
 
 # Prevent interactive prompts
 ENV DEBIAN_FRONTEND=noninteractive
@@ -87,6 +95,10 @@ RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-${TARGETAR
     --mount=type=cache,target=/root/.cache/vcpkg,id=vcpkg-cache-${TARGETARCH} \
     vcpkg install --x-install-root=/app/build/vcpkg_installed
 
+# Stage 1b: the builder proper — sources on top of the finished toolchain.
+FROM toolchain AS builder
+ARG TARGETARCH
+
 # Copy source code (after the dep layer, so editing src/ never rebuilds deps).
 COPY . .
 
@@ -131,6 +143,10 @@ CMD ["--gtest_color=yes"]
 # VCPKG_INSTALLED_DIR reuses the deps the builder already installed under
 # /app/build — without it a fresh `cmake -B build-san` would reinstall the whole
 # dependency set from source (no binary cache inside the image).
+# Reusing an UNINSTRUMENTED dependency tree is sound for ASan/UBSan: both work
+# by instrumenting memory accesses in the code under test, and an uninstrumented
+# library simply contributes no checks. TSan is different — see the tsan-deps
+# stage below, which is why it does NOT reuse this tree.
 FROM builder AS sanitizer-builder
 # NOTE (council backlog, measured 2026-06): extending ASan to the integration
 # bucket here is deferred until T1 Phase 2 (app_core). Compiling the integration
@@ -144,6 +160,59 @@ RUN cmake -B build-san -G Ninja \
     -DVCPKG_INSTALLED_DIR=/app/build/vcpkg_installed \
     -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake && \
     cmake --build build-san -j"$(nproc)" --target llm_guard_tests_unit
+
+# Stage 2c: ThreadSanitizer dependency tree.
+#
+# Unlike ASan, TSan cannot be sound against uninstrumented libraries. Abseil's
+# Mutex/SpinLock and RE2's lazy initialisation synchronise through raw atomics
+# and futexes rather than pthread primitives, so TSan's interceptors see no
+# happens-before edge and report phantom races inside
+# absl::synchronization_internal the moment two threads call RE2::Match. The
+# only fix is to compile those libraries themselves with -fsanitize=thread, in
+# a dependency tree with its OWN install root and its own triplet
+# (triplets/x64-linux-tsan.cmake — read it for why re2 + abseil and not the
+# whole tree). The triplet name is part of vcpkg's ABI hash, so this tree can
+# never collide with, or invalidate, the plain one in
+# /app/build/vcpkg_installed.
+#
+# It hangs off `toolchain`, not `builder`: keyed on vcpkg.json + the triplet
+# file only, it survives every source-only change exactly like the plain dep
+# layer does. Cache mounts get their own -tsan- ids — sharing the plain ids
+# would let two concurrently-scheduled stages race on vcpkg's extracted tools
+# (the failure mode the id=TARGETARCH comment above describes).
+FROM toolchain AS tsan-deps
+ARG TARGETARCH
+COPY triplets/ /app/triplets/
+RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-tsan-${TARGETARCH} \
+    --mount=type=cache,target=/root/.cache/vcpkg,id=vcpkg-cache-tsan-${TARGETARCH} \
+    vcpkg install \
+    --triplet x64-linux-tsan \
+    --overlay-triplets=/app/triplets \
+    --x-install-root=/app/build-tsan/vcpkg_installed
+
+# Stage 2d: ThreadSanitizer test build.
+# Also branches off `toolchain` rather than `builder` — the tsan job has no use
+# for the Release binaries the builder stage produces, and skipping them saves a
+# full app compile per run. The instrumented tree is copied in from tsan-deps.
+FROM toolchain AS tsan-builder
+ARG TARGETARCH
+COPY --from=tsan-deps /app/build-tsan/vcpkg_installed /app/build-tsan/vcpkg_installed
+COPY . .
+# VCPKG_TARGET_TRIPLET + VCPKG_OVERLAY_TRIPLETS make the configure-time manifest
+# install resolve to the already-populated instrumented tree (a no-op), and make
+# find_package() look under vcpkg_installed/x64-linux-tsan. The cache mounts are
+# insurance: if that install ever decides to rebuild something, it restores from
+# the binary cache instead of recompiling a port under TSan.
+RUN --mount=type=cache,target=/opt/vcpkg/downloads,id=vcpkg-downloads-tsan-${TARGETARCH} \
+    --mount=type=cache,target=/root/.cache/vcpkg,id=vcpkg-cache-tsan-${TARGETARCH} \
+    cmake -B build-tsan -G Ninja \
+    -DCMAKE_BUILD_TYPE=Debug \
+    -DENABLE_TSAN=ON \
+    -DVCPKG_TARGET_TRIPLET=x64-linux-tsan \
+    -DVCPKG_OVERLAY_TRIPLETS=/app/triplets \
+    -DVCPKG_INSTALLED_DIR=/app/build-tsan/vcpkg_installed \
+    -DCMAKE_TOOLCHAIN_FILE=${VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake && \
+    cmake --build build-tsan -j"$(nproc)" --target llm_guard_tests_unit
 
 # Stage 3: Shared runtime base
 FROM ubuntu:24.04 AS runtime-base

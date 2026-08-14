@@ -59,7 +59,14 @@ helm-render and the OpenAPI-drift gate.
 
 - Don't edit the `builtin-baseline` in `vcpkg.json` or `ARG VCPKG_REF` in
   `docker/Dockerfile` by hand — Renovate owns them, and a baseline bump
-  rebuilds the entire dependency world.
+  rebuilds the entire dependency world (now twice: plain + TSan tree).
+- Don't point the `tsan` job back at `build/vcpkg_installed`. TSan is only
+  sound against dependencies compiled with `-fsanitize=thread` — it can't see
+  Abseil/RE2 synchronising through raw atomics and reports phantom races in
+  `absl::synchronization_internal`. The job builds the `tsan-builder` stage,
+  which links the separate instrumented tree produced by `tsan-deps` from
+  `triplets/x64-linux-tsan.cmake`. ASan/UBSan reusing the plain tree is fine
+  and intentional.
 - Don't weaken `config/config.production.json` — `make prod-check` gates it.
 - Don't change the error-response shape without updating `docs/openapi.yaml`.
 
