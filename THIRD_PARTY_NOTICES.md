@@ -22,8 +22,8 @@ and the OS package docs under `/usr/share/doc/*/copyright` in the runtime image.
 | prometheus-cpp | MIT |
 | opentelemetry-cpp | Apache-2.0 † |
 | nlohmann/json | MIT |
-| re2 | BSD-3-Clause (added in bootstrap; enters `vcpkg.json` in the next task) |
-| yaml-cpp | MIT (added in bootstrap; enters `vcpkg.json` in the next task) |
+| re2 | BSD-3-Clause |
+| yaml-cpp | MIT |
 | utf8proc | MIT |
 | GoogleTest | BSD-3-Clause (tests only — not shipped in runtime images) |
 

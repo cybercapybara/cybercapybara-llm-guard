@@ -33,7 +33,7 @@ Two hard invariants, preserved verbatim from the original:
 | Decision | Choice |
 |---|---|
 | Scope | Full parity: proxy + SSE demasking + rules engine + config API + web console + audit + in-memory/Redis/Postgres stores |
-| Branding | Own: binary `llm-guard`, env prefix `LLMGUARD_`, metrics namespace `llmguard`, image `ghcr.io/cybercapybara/cybercapybara-llm-guard` |
+| Branding | Own: binary `llm-guard`, env prefix `LLMGUARD_`, metrics namespace `llmguard`, image `ghcr.io/cybercapybara/llm-guard` (amended post-phase-1: shorter repo-consistent name) |
 | Rules catalog | Ported from the original with Apache-2.0/MIT attribution (`THIRD_PARTY_NOTICES.md`, `NOTICE`); project license MIT |
 | Management API | REST only (no gRPC), OpenAPI 3.1 spec, template error shape |
 | Process model | One binary, three listeners (8080 data / 9080 management+console / 9090 metrics) |
