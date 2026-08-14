@@ -666,15 +666,114 @@ TEST(GuardScanner, ParallelWorkerExceptionSurfacesAsRuntimeError) {
     EXPECT_THROW(Guard::scan_rules(text, rules), std::runtime_error);
 }
 
-// ── Prefilter passthrough (Task 1.8 handoff) ──────────────────────────────
+// ── Keyword pre-filter (Task 1.8) ─────────────────────────────────────────
+// Helper: builds a rule with keywords set (make_rule above has no keywords
+// param), so its prefilter_eligible gets computed for real by
+// Registry::compile_rule via Guard::Prefilter.hpp's regex_guarantees_keyword.
+// The exhaustive port of Go's regexGuaranteesKeyword/foldSafeForToLower test
+// vectors lives in test_guard_prefilter.cpp; these pin only the scanner's
+// own wiring: the lazy-lowercase, filter-then-dispatch behavior, and the
+// end-to-end recall-preserving guarantee.
 
-TEST(GuardScanner, PrefilterEnabledIsANoOpPassthrough) {
-    // ScanOptions.prefilter_enabled is accepted but not yet wired -- Task
-    // 1.8 implements the keyword pre-filter (Prefilter.hpp's
-    // regex_guarantees_keyword). Pinning this contract now means a future
-    // change that starts consulting the flag without finishing the real
-    // implementation can't silently ship a behavior change under this
-    // task's cover: true and false must produce identical output today.
+namespace {
+
+Guard::Rule make_keyword_rule(std::string id,
+                              std::string regex,
+                              std::vector<std::string> keywords,
+                              std::string placeholder = "TEST") {
+    Guard::Rule r = make_rule(std::move(id), std::move(regex), {}, std::move(placeholder));
+    r.keywords = std::move(keywords);
+    return r;
+}
+
+}  // namespace
+
+TEST(GuardScanner, FilterByKeywordsDropsEligibleRuleWithoutKeywordHitButKeepsIneligible) {
+    // White-box check on detail::filter_by_keywords directly: for a truly
+    // eligible rule (regex_guarantees_keyword proved every match contains
+    // the keyword), it is IMPOSSIBLE to observe a difference in scan_rules's
+    // output when the keyword is absent -- the regex literally cannot match
+    // text that doesn't contain it, by construction of eligibility. So the
+    // pre-filter's own effect (skipping the eligible rule's regex work
+    // entirely) is only observable by calling filter_by_keywords itself.
+    auto fx = build_rules({
+        make_keyword_rule("eligible.rule", "found=([a-z]+)", {"found"}),
+        // Ineligible: the keyword is an external label the regex doesn't
+        // require (self-contained hex token, gitleaks-style) -- must never
+        // be dropped by the pre-filter regardless of whether its own
+        // declared keyword appears in the text.
+        make_keyword_rule("ineligible.rule", R"(\b([a-f0-9]{6})\b)", {"vendorlabel"}),
+    });
+    ASSERT_TRUE(fx.registry->by_id("eligible.rule")->prefilter_eligible);
+    ASSERT_FALSE(fx.registry->by_id("ineligible.rule")->prefilter_eligible);
+
+    const std::string text = "no keywords here, just abc123";  // neither "found" nor "vendorlabel" appear
+    auto filtered = Guard::detail::filter_by_keywords(text, fx.rules);
+
+    ASSERT_EQ(filtered.size(), 1u);
+    EXPECT_EQ(filtered[0]->rule.id, "ineligible.rule");
+}
+
+TEST(GuardScanner, IneligibleRuleIsScannedByPrefilterEvenWhenItsKeywordNeverAppears) {
+    // The observable, end-to-end counterpart of the white-box test above:
+    // an ineligible rule's match must survive with the pre-filter ON even
+    // though the text never contains its declared keyword at all -- proof
+    // it was never filtered on that keyword's (irrelevant) presence.
+    auto fx = build_rules({make_keyword_rule("ineligible.rule", R"(\b([a-f0-9]{6})\b)", {"vendorlabel"})});
+    ASSERT_FALSE(fx.registry->by_id("ineligible.rule")->prefilter_eligible);
+
+    const std::string text = "token is abc123 in the log";  // "vendorlabel" never appears
+
+    Guard::ScanOptions on;
+    on.prefilter_enabled = true;
+    auto matches = Guard::scan_rules(text, fx.rules, on);
+
+    ASSERT_EQ(matches.size(), 1u);
+    expect_match(matches[0], text.find("abc123"), text.find("abc123") + 6, "ineligible.rule");
+}
+
+TEST(GuardScanner, PrefilterEnabledIsRecallPreservingEquivalentToDisabled) {
+    // scan_rules(text, rules, {prefilter_enabled=true}) ==
+    // scan_rules(text, rules, {prefilter_enabled=false}) for a mixed rule
+    // set (eligible + ineligible) over a text that DOES contain hits for
+    // everything -- the pre-filter must never change WHAT is found, only
+    // how much regex work it takes to find it.
+    auto fx = build_rules({
+        make_keyword_rule("r1.eligible", "token=([a-z]+)", {"token"}, "TOKEN"),
+        make_keyword_rule("r2.eligible", "secret=([a-z]+)", {"secret"}, "SECRET"),
+        make_keyword_rule("r3.ineligible", R"(\b([a-f0-9]{6})\b)", {"vendorlabel"}, "HEX"),
+    });
+    ASSERT_TRUE(fx.registry->by_id("r1.eligible")->prefilter_eligible);
+    ASSERT_TRUE(fx.registry->by_id("r2.eligible")->prefilter_eligible);
+    ASSERT_FALSE(fx.registry->by_id("r3.ineligible")->prefilter_eligible);
+
+    const std::string text = "token=abc secret=xyz id=abc123";
+
+    Guard::ScanOptions off;
+    off.prefilter_enabled = false;
+    Guard::ScanOptions on;
+    on.prefilter_enabled = true;
+
+    auto matches_off = Guard::scan_rules(text, fx.rules, off);
+    auto matches_on = Guard::scan_rules(text, fx.rules, on);
+
+    ASSERT_EQ(matches_off.size(), 3u);
+    ASSERT_EQ(matches_off.size(), matches_on.size());
+    for (std::size_t i = 0; i < matches_off.size(); ++i) {
+        EXPECT_EQ(matches_off[i].start, matches_on[i].start);
+        EXPECT_EQ(matches_off[i].end, matches_on[i].end);
+        ASSERT_NE(matches_off[i].rule, nullptr);
+        ASSERT_NE(matches_on[i].rule, nullptr);
+        EXPECT_EQ(matches_off[i].rule->rule.id, matches_on[i].rule->rule.id);
+    }
+}
+
+TEST(GuardScanner, PrefilterEnabledOnRuleSetWithNoKeywordsAtAllBehavesLikeDisabled) {
+    // No rule declares keywords (the original make_rule default) -- every
+    // rule is trivially "not eligible", so filter_by_keywords is a pure
+    // passthrough and the lazy lowercase never even runs. Pins that this
+    // degenerate case (the shape every pre-1.8 test in this file used)
+    // still behaves identically on vs. off.
     auto fx = build_rules({
         make_rule("r1", "token=([a-z]+)", {1}, "TOKEN"),
         make_rule("r2", "secret=([a-z]+)", {1}, "SECRET"),
