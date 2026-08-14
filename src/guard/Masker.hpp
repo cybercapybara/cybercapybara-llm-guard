@@ -40,15 +40,28 @@
  *          in-flight scan to finish first (mirrors Go's `wg.Wait()` -- it
  *          cannot cheaply cancel in-flight work either), then reports the
  *          lowest-index failure regardless of which one finished first. This
- *          port launches one `std::async` task per text once fan-out is
- *          chosen, rather than Go's semaphore-bounded goroutine-per-text
- *          (`scanWorkers`'s return value there only bounds concurrent
- *          in-flight goroutines via a buffered channel, handle.go:147-168) --
- *          a deliberate simplification: the semaphore is a resource-limiting
- *          detail invisible in the OUTPUT this port is contracted to match
- *          (results are still collected in index order, all-or-nothing,
- *          lowest-index-error-wins), not a behavior this port needs to
- *          reproduce bit-for-bit.
+ *          port launches exactly `text_scan_worker_count(texts, opts)`
+ *          `std::async` tasks once fan-out is chosen -- NOT one task per
+ *          text -- each covering its own contiguous, non-overlapping index
+ *          range of `texts` and scanning that range serially into its own
+ *          slice of `results` (disjoint element writes to a pre-sized
+ *          `std::vector` are data-race-free even without synchronization).
+ *          This bounds in-flight OS threads to the same worker count Go's
+ *          semaphore bounds concurrent goroutines to (`scanWorkers`'s return
+ *          value there only bounds concurrent in-flight goroutines via a
+ *          buffered channel, handle.go:147-168) -- a request with thousands
+ *          of texts no longer spawns one thread per text (nor, since each
+ *          per-text scan can itself fan out inside `scan_rules`, thousands
+ *          of NESTED thread pools). Chunking rather than a literal semaphore
+ *          is a deliberate simplification of Go's exact mechanism: the
+ *          OUTPUT this port is contracted to match only depends on the
+ *          bound on concurrency, not on how it's enforced (results are still
+ *          collected in index order, all-or-nothing, lowest-index-error-wins);
+ *          a chunk that hits a scan failure partway through still finishes
+ *          scanning the REST of its own range (mirrors this port's prior,
+ *          and Go's, "the parallel path cannot cheaply cancel in-flight
+ *          work either" stance -- only the fully-SEQUENTIAL branch above
+ *          stops early, since there nothing is "in flight" to let finish).
  *
  *          **Phase B -- mask** (`detail::MaskerState` ports `masker`,
  *          masker.go, in full): runs SEQUENTIALLY in text order through one
@@ -121,10 +134,18 @@
  *          whose RENDERED placeholder string is in that set, trying the next
  *          counter value instead, so a generated placeholder can never
  *          collide with (and thus corrupt, on demask) a placeholder-shaped
- *          token the user's own text already contained. A reserved literal
- *          is itself never touched by masking (it isn't a scan match; the
- *          scanner only reports rule hits, not placeholder-shaped literals)
- *          and never appears in `replacements`.
+ *          token the user's own text already contained. Reservation is
+ *          orthogonal to matching: a placeholder-shaped literal is NOT
+ *          exempt from a rule that happens to match it (nothing here
+ *          special-cases the text `<EMAIL_1>` against, say, an overly broad
+ *          email regex) -- if a rule DOES match it, that match is masked
+ *          exactly like any other, just with a freshly minted, guaranteed
+ *          non-colliding placeholder (the counter skips every reserved
+ *          value), so the round trip stays safe either way: an untouched
+ *          reserved literal is never corrupted by demasking a DIFFERENT
+ *          occurrence of the same rendered text, and a reserved literal that
+ *          DOES get matched is masked and later demasked like any other
+ *          value, never conflated with the pre-existing literal.
  *
  *          Splicing (`MaskerState::mask_text` ports `maskText`, masker.go:
  *          62-100): a single left-to-right walk with a `pos` cursor, exactly
@@ -149,6 +170,7 @@
 #include <exception>
 #include <future>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -247,6 +269,12 @@ public:
     /// the left-to-right splice to be correct; the `match.start < pos`
     /// defensive skip covers a caller that violates this directly (see the
     /// file-level doc comment).
+    /// @throws std::runtime_error if any `match.rule` is null -- `scan_rules`
+    ///         never produces this (mirrors `Scanner.hpp`'s own
+    ///         `NullCompiledRulePointerThrows` precondition, scan_one_rule's
+    ///         `if (!cr) throw ...`), but this function -- like `scan_rules`
+    ///         -- accepts a caller-supplied match vector with no guarantee
+    ///         every entry came from the scanner.
     std::string mask_text(std::string_view text, const std::vector<ScanMatch>& matches) {
         if (matches.empty())
             return std::string(text);
@@ -256,6 +284,8 @@ public:
         std::size_t pos = 0;
 
         for (const ScanMatch& match : matches) {
+            if (!match.rule)
+                throw std::runtime_error("MaskerState::mask_text: matches[] contains a null CompiledRule pointer");
             if (match.start < pos)
                 continue;
 
@@ -364,16 +394,21 @@ inline std::size_t text_scan_worker_count(const std::vector<std::string>& texts,
 
 // Ports `scanTexts` (handle.go:126-170): scans every text against `rules`,
 // sequentially (stopping at the first failing index -- "no point scanning
-// the remaining texts") when fan-out doesn't apply, or one `std::async` task
-// per text (see the file-level doc comment for why this simplifies Go's
-// semaphore-bounded goroutine-per-text) when it does -- the parallel branch
-// always waits for every task before returning, mirroring `wg.Wait()`.
+// the remaining texts") when fan-out doesn't apply. When it does apply,
+// bounds in-flight `std::async` tasks to exactly `text_scan_worker_count`
+// (NOT one task per text -- see the file-level doc comment) by chunking
+// `texts` into that many contiguous, non-overlapping index ranges, each
+// scanned serially by its own task directly into its own slice of `results`
+// (disjoint-index writes to a pre-sized vector need no synchronization) --
+// the parallel branch always waits for every chunk task before returning,
+// mirroring Go's `wg.Wait()`.
 inline std::vector<TextScanResult> scan_texts(const std::vector<std::string>& texts,
                                               const std::vector<const CompiledRule*>& rules,
                                               const MaskOptions& opts) {
     std::vector<TextScanResult> results(texts.size());
+    const std::size_t workers = text_scan_worker_count(texts, opts);
 
-    if (text_scan_worker_count(texts, opts) <= 1) {
+    if (workers <= 1) {
         for (std::size_t i = 0; i < texts.size(); ++i) {
             try {
                 results[i].matches = scan_rules(texts[i], rules, opts.scan);
@@ -385,19 +420,28 @@ inline std::vector<TextScanResult> scan_texts(const std::vector<std::string>& te
         return results;
     }
 
-    std::vector<std::future<std::vector<ScanMatch>>> futures;
-    futures.reserve(texts.size());
-    for (std::size_t i = 0; i < texts.size(); ++i) {
-        futures.push_back(std::async(std::launch::async,
-                                     [&texts, &rules, &opts, i]() { return scan_rules(texts[i], rules, opts.scan); }));
+    const std::size_t n = texts.size();
+    const std::size_t chunk_size = (n + workers - 1) / workers;  // ceil(n / workers)
+
+    std::vector<std::future<void>> futures;
+    futures.reserve(workers);
+    for (std::size_t w = 0; w < workers; ++w) {
+        const std::size_t begin = w * chunk_size;
+        const std::size_t end = std::min(n, begin + chunk_size);
+        if (begin >= end)
+            break;  // fewer texts than workers: later workers get an empty range
+        futures.push_back(std::async(std::launch::async, [&texts, &rules, &opts, &results, begin, end]() {
+            for (std::size_t i = begin; i < end; ++i) {
+                try {
+                    results[i].matches = scan_rules(texts[i], rules, opts.scan);
+                } catch (...) {
+                    results[i].error = std::current_exception();
+                }
+            }
+        }));
     }
-    for (std::size_t i = 0; i < futures.size(); ++i) {
-        try {
-            results[i].matches = futures[i].get();
-        } catch (...) {
-            results[i].error = std::current_exception();
-        }
-    }
+    for (auto& f : futures)
+        f.get();
     return results;
 }
 
@@ -429,7 +473,17 @@ inline void propagate_first_scan_error(const std::vector<TextScanResult>& result
  * @throws std::runtime_error if any text's scan fails -- the first failure by
  *         lowest text index wins (see `detail::propagate_first_scan_error`);
  *         the caller is expected to fail open on this, per the interface
- *         contract.
+ *         contract. Also throws `std::runtime_error` if a `ScanMatch` reaches
+ *         `MaskerState::mask_text` with a null `rule` (see its own doc
+ *         comment) -- unreachable through `scan_rules`'s own output, but
+ *         `mask_text` accepts no narrower a contract than `scan_rules` itself
+ *         does for its `rules` parameter. When the text-level fan-out gate
+ *         (`detail::text_scan_worker_count`) is cleared, `detail::scan_texts`
+ *         may additionally propagate a `std::system_error` from `std::async`
+ *         (per `std::launch::async`'s specification) if the platform cannot
+ *         start a new thread; this is NOT caught and wrapped, unlike a
+ *         per-text scan failure, so it surfaces with its own type rather than
+ *         as `std::runtime_error`.
  */
 inline MaskResult mask_texts(const std::vector<std::string>& texts,
                              const std::vector<const CompiledRule*>& rules,
