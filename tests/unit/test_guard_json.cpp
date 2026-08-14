@@ -1,7 +1,10 @@
 /**
  * @file test_guard_json.cpp
  * @brief Unit tests for `Guard::Json` (`src/guard/json/Json.hpp`) -- the
- *        byte-surgical span scanner/splicer.
+ *        byte-surgical span scanner/splicer -- plus `Guard::Extract::
+ *        wants_stream` (`src/guard/extract/Extract.hpp`), which Task 2.1's
+ *        controller ruling folded into this task to remove a three-writer
+ *        collision on `Extract.hpp` between Tasks 2.2-2.4.
  *
  * Test groups, each named for the behavior it pins:
  *   - FindValue: nested object/array traversal, escaped/unicode keys,
@@ -16,6 +19,7 @@
  *   - DeepNesting: 1000-level nesting, no crash.
  *   - GeneratedRoundTrip: 200 seeded-random documents; every string leaf's
  *     splice(find(x), encode(decode(x))) round-trips byte-identically.
+ *   - WantsStream: Guard::Extract::wants_stream.
  */
 
 #include <cstddef>
@@ -31,6 +35,8 @@
 
 #include <gtest/gtest.h>
 
+#include "guard/ApiFormat.hpp"
+#include "guard/extract/Extract.hpp"
 #include "guard/json/Json.hpp"
 
 namespace {
@@ -742,5 +748,72 @@ TEST(GuardJson, GeneratedRoundTrip200Documents) {
             EXPECT_EQ(spliced, doc) << "doc " << doc_index << " leaf " << li << " original=" << original_span
                                     << " re_encoded=" << re_encoded;
         }
+    }
+}
+
+// ── Guard::Extract::wants_stream ─────────────────────────────────────────
+
+TEST(GuardExtract, WantsStreamTrue) {
+    EXPECT_TRUE(Guard::Extract::wants_stream(R"({"model":"x","stream":true})"));
+}
+
+TEST(GuardExtract, WantsStreamFalse) {
+    EXPECT_FALSE(Guard::Extract::wants_stream(R"({"model":"x","stream":false})"));
+}
+
+TEST(GuardExtract, WantsStreamMissingFieldIsFalse) {
+    EXPECT_FALSE(Guard::Extract::wants_stream(R"({"model":"x"})"));
+}
+
+TEST(GuardExtract, WantsStreamMalformedBodyIsFalse) {
+    EXPECT_FALSE(Guard::Extract::wants_stream("not json"));
+    EXPECT_FALSE(Guard::Extract::wants_stream(""));
+}
+
+TEST(GuardExtract, WantsStreamIgnoresNestedField) {
+    // Only the TOP-LEVEL "stream" field counts; a same-named nested field
+    // must not be mistaken for it.
+    EXPECT_FALSE(Guard::Extract::wants_stream(R"({"options":{"stream":true}})"));
+}
+
+TEST(GuardExtract, WantsStreamSameFieldForAllThreeFormats) {
+    // Spec §5: "Streaming intent = top-level 'stream': true (same field in
+    // all three)." wants_stream needs no format parameter at all.
+    EXPECT_TRUE(Guard::Extract::wants_stream(R"({"messages":[],"stream":true})"));  // chat_completions-ish
+    EXPECT_TRUE(Guard::Extract::wants_stream(R"({"model":"c","stream":true})"));    // messages-ish
+    EXPECT_TRUE(Guard::Extract::wants_stream(R"({"input":"hi","stream":true})"));   // responses-ish
+}
+
+TEST(GuardExtract, WantsStreamLooseGjsonBoolCoercion) {
+    // Mirrors gjson's Result.Bool(): a JSON string is loosely parsed
+    // (case-insensitively) via strconv.ParseBool, a JSON number is truthy
+    // iff nonzero -- see the Extract.hpp file-level doc comment.
+    EXPECT_TRUE(Guard::Extract::wants_stream(R"({"stream":"true"})"));
+    EXPECT_TRUE(Guard::Extract::wants_stream(R"({"stream":"TRUE"})"));
+    EXPECT_TRUE(Guard::Extract::wants_stream(R"({"stream":"1"})"));
+    EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":"false"})"));
+    EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":"0"})"));
+    EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":"nonsense"})"));
+    EXPECT_TRUE(Guard::Extract::wants_stream(R"({"stream":1})"));
+    EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":0})"));
+    EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":null})"));
+    EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":{}})"));
+}
+
+// ── Extract dispatch stubs (Tasks 2.2-2.4 land the real bodies) ─────────
+
+TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryFormat) {
+    const std::string body = R"({"messages":[{"role":"user","content":"hi"}]})";
+    for (auto format : {Guard::ApiFormat::ChatCompletions, Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
+        const auto result = Guard::Extract::extract_request(body, format);
+        EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
+    }
+}
+
+TEST(GuardExtract, ExtractResponseStubReturnsUnsupportedForEveryFormat) {
+    const std::string body = R"({"choices":[{"message":{"content":"hi"}}]})";
+    for (auto format : {Guard::ApiFormat::ChatCompletions, Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
+        const auto result = Guard::Extract::extract_response(body, format);
+        EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
     }
 }
