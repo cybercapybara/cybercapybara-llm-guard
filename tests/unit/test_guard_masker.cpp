@@ -15,10 +15,12 @@
  * the "error propagation" section below for why this port can't reproduce
  * per-text-dependent scan failures the way Go's mocked scanner does).
  * `TestMaskerPlaceholderHelpers`'s reuse-ignores-differing-type assertion is
- * covered by `MultiTextSameOriginalDifferentTypeStillDedupes` below rather
- * than ported as its own test, since `MaskerState::placeholder_for_original`/
- * `next_placeholder` are private (Go's package-internal test reaches methods
- * this port deliberately doesn't expose as public API).
+ * covered by `GuardMaskerState.StateAccumulatesAcrossMultipleMaskTextCalls`
+ * below (its second `mask_text` call reuses "secret"'s placeholder from a
+ * rule whose placeholder type is "DIFFERENT") rather than ported as its own
+ * test, since `MaskerState::placeholder_for_original`/`next_placeholder` are
+ * private (Go's package-internal test reaches methods this port deliberately
+ * doesn't expose as public API).
  */
 
 #include <cstddef>
@@ -270,23 +272,6 @@ TEST(GuardMasker, MultiTextCounterContinuesAcrossTexts) {
     EXPECT_EQ(got.state.replacements[0].placeholder, "<EMAIL_1>");
     EXPECT_EQ(got.state.replacements[1].placeholder, "<EMAIL_2>");
     EXPECT_EQ(got.state.replacements[2].placeholder, "<EMAIL_3>");
-}
-
-TEST(GuardMasker, MultiTextSameOriginalDifferentTypeStillDedupes) {
-    // Ports TestMaskerPlaceholderHelpers' reuse-ignores-differing-type
-    // assertion indirectly through the public API: "secret" is masked once
-    // via a SECRET-placeholder rule, then a DIFFERENT rule (placeholder
-    // "DIFFERENT") also matches the literal string "secret" in another text
-    // -- dedup keys on the ORIGINAL VALUE alone, so the second occurrence
-    // reuses "<SECRET_1>" rather than minting "<DIFFERENT_1>".
-    Rule secret_rule = make_rule("credentials.secret", "secret", "SECRET", DataType::Credentials);
-    Rule different_rule = make_rule("credentials.other", "other", "DIFFERENT", DataType::Credentials);
-    auto fx = build_rules({secret_rule, different_rule});
-
-    Guard::MaskResult got = Guard::mask_texts({"secret and api", "secret and other"}, fx.rules);
-
-    EXPECT_EQ(got.masked_texts[0], "<SECRET_1> and api");
-    EXPECT_EQ(got.masked_texts[1], "<SECRET_1> and other");
 }
 
 TEST(GuardMasker, EmptyTextsVectorReturnsEmptyResult) {
