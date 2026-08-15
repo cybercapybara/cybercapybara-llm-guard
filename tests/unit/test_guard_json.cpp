@@ -235,6 +235,175 @@ TEST(GuardJson, ValidAcceptsHugeNumber) {
     EXPECT_TRUE(Guard::Json::valid(doc));
 }
 
+// ── find_value_in / string_leaves_in: scoped lookup (Task 2.2) ──────────
+//
+// Added alongside the chat_completions extractor to keep a caller walking
+// many array/object siblings out of find_value's O(document size) per-
+// lookup cost: resolve the containing array once, then resolve each
+// sibling and its nested fields scoped to that sibling's own span. These
+// pin the offset-readd contract documented on both functions.
+
+TEST(GuardJson, FindValueInNestedContainerMatchesUnscopedLookup) {
+    const std::string doc =
+        R"({"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"second"}]})";
+    const auto messages = Guard::Json::find_value(doc, {key("messages")});
+    ASSERT_TRUE(messages.has_value());
+
+    const auto elem1 = Guard::Json::find_value_in(doc, *messages, {idx(1)});
+    ASSERT_TRUE(elem1.has_value());
+    const auto scoped = Guard::Json::find_value_in(doc, *elem1, {key("content")});
+    const auto unscoped = Guard::Json::find_value(doc, {key("messages"), idx(1), key("content")});
+    ASSERT_TRUE(scoped.has_value());
+    ASSERT_TRUE(unscoped.has_value());
+    EXPECT_EQ(scoped->start, unscoped->start);
+    EXPECT_EQ(scoped->end, unscoped->end);
+    EXPECT_TRUE(scoped->is_string);
+    EXPECT_EQ(span_text(doc, *scoped), "\"second\"");
+}
+
+TEST(GuardJson, FindValueInOffsetCorrectnessAtNonZeroContainerStart) {
+    // The container span does NOT start at byte 0 of `doc`: pins that
+    // find_value_in re-adds `container.start` (not some other offset) onto
+    // the result.
+    const std::string doc = R"({"padding":"xxxxxxxxxx","obj":{"k":"v"}})";
+    const auto container = Guard::Json::find_value(doc, {key("obj")});
+    ASSERT_TRUE(container.has_value());
+    ASSERT_GT(container->start, 0u);  // sanity: the container really is offset into doc
+
+    const auto found = Guard::Json::find_value_in(doc, *container, {key("k")});
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(span_text(doc, *found), "\"v\"");
+    // The returned span must be a sub-range of the container's own span, in
+    // doc's coordinates -- not the substring's.
+    EXPECT_GE(found->start, container->start);
+    EXPECT_LE(found->end, container->end);
+}
+
+TEST(GuardJson, FindValueInEmptyRelativePathReturnsContainerItself) {
+    const std::string doc = R"({"a":{"b":1}})";
+    const auto container = Guard::Json::find_value(doc, {key("a")});
+    ASSERT_TRUE(container.has_value());
+    const auto found = Guard::Json::find_value_in(doc, *container, {});
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(found->start, container->start);
+    EXPECT_EQ(found->end, container->end);
+}
+
+TEST(GuardJson, FindValueInMissingKeyReturnsNullopt) {
+    const std::string doc = R"({"obj":{"k":"v"}})";
+    const auto container = Guard::Json::find_value(doc, {key("obj")});
+    ASSERT_TRUE(container.has_value());
+    EXPECT_FALSE(Guard::Json::find_value_in(doc, *container, {key("missing")}).has_value());
+}
+
+TEST(GuardJson, FindValueInOutOfBoundsContainerReturnsNullopt) {
+    const std::string doc = R"({"a":1})";
+    EXPECT_FALSE(
+        Guard::Json::find_value_in(doc, Guard::Json::ValueSpan{0, doc.size() + 1, false}, {key("a")}).has_value());
+    EXPECT_FALSE(Guard::Json::find_value_in(doc, Guard::Json::ValueSpan{5, 1, false}, {key("a")}).has_value());
+}
+
+TEST(GuardJson, StringLeavesInMatchesUnscopedWalkWithOffsetReadd) {
+    const std::string doc = R"({"padding":"xxxxxxxxxx","obj":{"a":"one","b":["two","three"]}})";
+    const auto container = Guard::Json::find_value(doc, {key("obj")});
+    ASSERT_TRUE(container.has_value());
+    ASSERT_GT(container->start, 0u);
+
+    const auto scoped = Guard::Json::string_leaves_in(doc, *container, {});
+    const auto unscoped = Guard::Json::string_leaves(doc, {key("obj")});
+    ASSERT_EQ(scoped.size(), unscoped.size());
+    for (std::size_t i = 0; i < scoped.size(); ++i) {
+        EXPECT_EQ(scoped[i].span.start, unscoped[i].span.start);
+        EXPECT_EQ(scoped[i].span.end, unscoped[i].span.end);
+    }
+    ASSERT_EQ(scoped.size(), 3u);
+    EXPECT_EQ(span_text(doc, scoped[0].span), "\"one\"");
+    EXPECT_EQ(span_text(doc, scoped[1].span), "\"two\"");
+    EXPECT_EQ(span_text(doc, scoped[2].span), "\"three\"");
+}
+
+// ── array_elements: single-pass array walk (Task 2.2 round 2) ───────────
+//
+// Added after review measured `find_value_in`-probing-by-index still O(n^2)
+// in element count: each probe re-scans the array from its own opening
+// bracket. `array_elements` walks the array exactly once instead.
+
+TEST(GuardJson, ArrayElementsFlatArrayCountAndSpansCorrect) {
+    const std::string doc = R"([10,"two",true,null,3.5])";
+    const auto array_span = Guard::Json::find_value(doc, {});
+    ASSERT_TRUE(array_span.has_value());
+
+    const auto elements = Guard::Json::array_elements(doc, *array_span);
+    ASSERT_EQ(elements.size(), 5u);
+    EXPECT_EQ(span_text(doc, elements[0]), "10");
+    EXPECT_FALSE(elements[0].is_string);
+    EXPECT_EQ(span_text(doc, elements[1]), "\"two\"");
+    EXPECT_TRUE(elements[1].is_string);
+    EXPECT_EQ(span_text(doc, elements[2]), "true");
+    EXPECT_EQ(span_text(doc, elements[3]), "null");
+    EXPECT_EQ(span_text(doc, elements[4]), "3.5");
+}
+
+TEST(GuardJson, ArrayElementsNestedArraysAndObjectsSpanTheWholeElementNotItsContents) {
+    // Each returned span must cover the WHOLE nested element (so a
+    // subsequent find_value_in against it can look inside), not just its
+    // opening token or its own first child.
+    const std::string doc = R"([{"a":1,"b":[2,3]},["x","y"],42])";
+    const auto array_span = Guard::Json::find_value(doc, {});
+    ASSERT_TRUE(array_span.has_value());
+
+    const auto elements = Guard::Json::array_elements(doc, *array_span);
+    ASSERT_EQ(elements.size(), 3u);
+    EXPECT_EQ(span_text(doc, elements[0]), R"({"a":1,"b":[2,3]})");
+    EXPECT_EQ(span_text(doc, elements[1]), R"(["x","y"])");
+    EXPECT_EQ(span_text(doc, elements[2]), "42");
+
+    // And each element's span must actually be usable with find_value_in.
+    const auto b1 = Guard::Json::find_value_in(doc, elements[0], {key("b"), idx(1)});
+    ASSERT_TRUE(b1.has_value());
+    EXPECT_EQ(span_text(doc, *b1), "3");
+}
+
+TEST(GuardJson, ArrayElementsMatchesRepeatedFindValueInProbing) {
+    // Cross-check against the (slower, O(n^2)) probing approach this
+    // function replaces -- must produce byte-identical spans.
+    const std::string doc = R"({"messages":[{"content":"a"},{"content":"b"},{"content":"c"}]})";
+    const auto messages_span = Guard::Json::find_value(doc, {key("messages")});
+    ASSERT_TRUE(messages_span.has_value());
+
+    const auto elements = Guard::Json::array_elements(doc, *messages_span);
+    ASSERT_EQ(elements.size(), 3u);
+    for (std::size_t i = 0; i < elements.size(); ++i) {
+        const auto probed = Guard::Json::find_value_in(doc, *messages_span, {idx(i)});
+        ASSERT_TRUE(probed.has_value());
+        EXPECT_EQ(elements[i].start, probed->start);
+        EXPECT_EQ(elements[i].end, probed->end);
+    }
+}
+
+TEST(GuardJson, ArrayElementsEmptyArrayReturnsEmpty) {
+    const std::string doc = R"([])";
+    const auto array_span = Guard::Json::find_value(doc, {});
+    ASSERT_TRUE(array_span.has_value());
+    EXPECT_TRUE(Guard::Json::array_elements(doc, *array_span).empty());
+}
+
+TEST(GuardJson, ArrayElementsNonArraySpanReturnsEmpty) {
+    const std::string doc = R"({"obj":{"a":1},"str":"x","num":5,"bool":true,"null":null})";
+    for (const char* key_name : {"obj", "str", "num", "bool", "null"}) {
+        SCOPED_TRACE(key_name);
+        const auto span = Guard::Json::find_value(doc, {key(key_name)});
+        ASSERT_TRUE(span.has_value());
+        EXPECT_TRUE(Guard::Json::array_elements(doc, *span).empty());
+    }
+}
+
+TEST(GuardJson, ArrayElementsOutOfBoundsSpanReturnsEmpty) {
+    const std::string doc = R"([1,2,3])";
+    EXPECT_TRUE(Guard::Json::array_elements(doc, Guard::Json::ValueSpan{0, doc.size() + 1, false}).empty());
+    EXPECT_TRUE(Guard::Json::array_elements(doc, Guard::Json::ValueSpan{5, 1, false}).empty());
+}
+
 // ── decode_string / encode_string ───────────────────────────────────────
 
 TEST(GuardJson, DecodeStringBasicEscapes) {
@@ -816,30 +985,29 @@ TEST(GuardExtract, WantsStreamLooseGjsonBoolCoercion) {
     EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":{}})"));
 }
 
-// ── Extract dispatch stubs (Tasks 2.2-2.3 still land; 2.4 already wired) ─
+// ── Extract dispatch stub (Task 2.3 still lands; 2.2/2.4 already wired) ──
+//
+// Task 2.2 landed the real `ChatCompletions` body (`src/guard/extract/
+// ChatCompletions.hpp` + `tests/unit/test_guard_extract_cc.cpp`, which
+// covers its dispatch wiring in `GuardExtractChatCompletionsDispatch.*`);
+// Task 2.4 landed the real `Responses` body (`src/guard/extract/
+// Responses.hpp` + `tests/unit/test_guard_extract_resp.cpp`, dispatch
+// wiring covered by `GuardExtractRespDispatch.*`). These two tests narrow
+// to just `Messages`, the one format still stubbed; Task 2.3 is expected to
+// delete this block entirely once it lands its own dispatch coverage
+// (controller-sequenced, same pattern as the two narrowings above).
 
-TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryFormat) {
-    // Responses (Task 2.4) is wired to real logic now, but this body has
-    // neither "input" nor "instructions", so it is genuinely Unsupported
-    // for that format too -- see test_guard_extract_resp.cpp for the real
-    // per-format extraction corpus.
+TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryStubbedFormat) {
     const std::string body = R"({"messages":[{"role":"user","content":"hi"}]})";
-    for (auto format : {Guard::ApiFormat::ChatCompletions, Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
+    for (auto format : {Guard::ApiFormat::Messages}) {
         const auto result = Guard::Extract::extract_request(body, format);
         EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
     }
 }
 
-TEST(GuardExtract, ExtractResponseStubReturnsUnsupportedForRemainingFormats) {
-    // Guard::ApiFormat::Responses is wired to Task 2.4's real
-    // ExtractOutputFields port, which -- unlike ExtractRequestContent --
-    // never reports Unsupported (a missing/non-array "output" just yields
-    // no fields), so it is intentionally excluded from this stub-only
-    // check; see test_guard_extract_resp.cpp for its real coverage,
-    // including `ExtractOutputFieldsNoOutput` pinning that exact "no
-    // fields, not Unsupported" behavior for this same body shape.
+TEST(GuardExtract, ExtractResponseStubReturnsUnsupportedForEveryStubbedFormat) {
     const std::string body = R"({"choices":[{"message":{"content":"hi"}}]})";
-    for (auto format : {Guard::ApiFormat::ChatCompletions, Guard::ApiFormat::Messages}) {
+    for (auto format : {Guard::ApiFormat::Messages}) {
         const auto result = Guard::Extract::extract_response(body, format);
         EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
     }

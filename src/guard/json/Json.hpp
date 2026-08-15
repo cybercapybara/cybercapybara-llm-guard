@@ -98,6 +98,38 @@
  *          error (mismatched span/document pair, or two edits computed
  *          against the same document that collide), not a malformed-input
  *          case.
+ *
+ *          **`find_value_in`/`string_leaves_in` (added by Task 2.2) are
+ *          scoped variants of `find_value`/`string_leaves`**: instead of
+ *          walking from the document root, they resolve a path/walk a
+ *          subtree relative to a caller-supplied `ValueSpan` container
+ *          (itself previously returned by `find_value`/`find_value_in`
+ *          against the SAME `doc`), then re-add `container.start` onto the
+ *          result so it still lands in `doc`'s own byte offsets -- see
+ *          either function's own doc comment for the full offset-readd
+ *          contract. They exist so a caller walking many array/object
+ *          siblings (e.g. a `messages`/`choices` array) can resolve each
+ *          sibling's own NESTED fields in O(that sibling's size) rather
+ *          than O(document size): looking up every field from the document
+ *          root for every one of N siblings costs O(N * document size)
+ *          overall, which is quadratic for a proxy request whose body size
+ *          and message count both grow together -- confirmed as a real DoS
+ *          regression (143ms @ 200 messages, 12.4s @ 2MB) against the first
+ *          `find_value`-from-root-per-field extractor implementation
+ *          (`Guard::Extract::ChatCompletions`, Task 2.2). `find_value_in`
+ *          ALONE is not sufficient to fix this for the siblings themselves,
+ *          though: probing it at index 0, 1, 2, ... to resolve each
+ *          sibling still re-scans the array from its OWN opening bracket on
+ *          every call (it only skips re-scanning from the DOCUMENT root),
+ *          so that part of the walk is still O(element count * array
+ *          size) -- confirmed by measurement against a `find_value_in`-only
+ *          revision of the same extractor (flat ~27x per doubling of
+ *          message count, 1.77s @ 8000 messages). `array_elements` (see its
+ *          own doc comment) is the piece that actually fixes the sibling
+ *          walk itself: one forward pass returning every element's span,
+ *          O(array size) total. The combination -- `array_elements` once
+ *          per array, `find_value_in` for each element's own nested fields
+ *          -- is what makes a whole extraction pass O(document size).
  */
 
 #pragma once
@@ -828,6 +860,118 @@ inline std::optional<ValueSpan> find_value(std::string_view doc, const std::vect
     return ValueSpan{pos, *ve, doc[pos] == '"'};
 }
 
+/// Scoped variant of `find_value`: resolves `relative_path` starting from
+/// `container` (a `ValueSpan` previously returned by `find_value`/
+/// `find_value_in` against this same `doc`) instead of the document root.
+/// Implemented by delegating to `find_value` over
+/// `doc.substr(container.start, container.end - container.start)` --
+/// itself O(1), since `string_view::substr` only adjusts a pointer/length
+/// pair, never copies -- and re-adding `container.start` onto BOTH fields
+/// of whatever span that returns before handing it back, so the result
+/// stays expressed in `doc`'s own (not the substring's) byte offsets,
+/// exactly like every other `ValueSpan` this file produces. This is the
+/// offset-readd contract every caller of this function relies on: a
+/// `find_value_in` result is always directly comparable/splice-able
+/// against the ORIGINAL `doc`, never against the intermediate substring.
+///
+/// Exists to keep a caller that walks an array/object of many siblings
+/// (e.g. one `ContentField` per element of a `messages`/`choices` array)
+/// OUT of `find_value`'s O(document size) per-lookup cost: resolve the
+/// containing array/object's span ONCE via `find_value`, then resolve each
+/// sibling and its nested fields via `find_value_in` scoped to that span
+/// (or to a previously-`find_value_in`-resolved sibling's own span, for
+/// fields nested more than one level below the container) -- each lookup
+/// then costs O(that element's size), and the elements' sizes sum to at
+/// most `doc`'s size, so a whole array walk is O(document size) instead of
+/// O(element count * document size). `Guard::Extract::ChatCompletions`
+/// (Task 2.2) is the first caller that needed this, after an unscoped,
+/// find-value-from-root-per-field implementation measured quadratic on
+/// large request bodies.
+///
+/// An out-of-bounds `container` (shouldn't happen for a span this file
+/// itself produced, but checked anyway per this file's "never throws on
+/// lookup" convention) yields `std::nullopt`, same as a missing key/index.
+inline std::optional<ValueSpan> find_value_in(std::string_view doc,
+                                              const ValueSpan& container,
+                                              const std::vector<PathSeg>& relative_path) {
+    if (container.start > container.end || container.end > doc.size())
+        return std::nullopt;
+
+    const std::string_view sub = doc.substr(container.start, container.end - container.start);
+    const auto found = find_value(sub, relative_path);
+    if (!found)
+        return std::nullopt;
+    return ValueSpan{found->start + container.start, found->end + container.start, found->is_string};
+}
+
+/// Returns the span of EVERY element of the JSON array found at
+/// `array_span` (a `ValueSpan` previously returned by `find_value`/
+/// `find_value_in`/`array_elements` itself against this same `doc`), in
+/// document order, via a SINGLE FORWARD PASS over the array's own bytes --
+/// O(`array_span`'s size), reusing the same `detail::skip_value`/
+/// `detail::skip_ws` machinery `find_value`'s array-index branch uses
+/// internally. This is the piece `find_value_in` alone does NOT give a
+/// caller: probing `find_value_in(doc, array_span, {PathSeg{"", i, true}})`
+/// for `i = 0, 1, 2, ...` still re-scans the array from its OPENING
+/// BRACKET on every single call (that scoped variant only avoids
+/// re-scanning from the DOCUMENT root, not from the array's own start), so
+/// resolving every element that way costs O(element count *
+/// `array_span`'s size) overall -- quadratic in element count, confirmed
+/// by measurement against `Guard::Extract::ChatCompletions`'s first
+/// `find_value_in`-based revision (Task 2.2): flat ~27x per doubling of
+/// message count, 1.77s at 8000 messages. `array_elements` fixes this by
+/// walking the array exactly once and returning every element's span in
+/// one pass, so a caller doing `for (i, elem_span) in
+/// enumerate(array_elements(doc, array_span))` (or the equivalent indexed
+/// loop over the returned vector) pays for each element exactly once,
+/// total cost O(`array_span`'s size) for the whole array, not per element.
+///
+/// Returns an empty vector -- never throws -- if `array_span` is out of
+/// bounds for `doc`, is a string span, or does not open with `[` (i.e. is
+/// not actually an array): same "never throws on lookup" convention as
+/// every other function in this file. A malformed array body (truncated,
+/// bad separator) stops the walk and returns whatever complete elements
+/// were already found before the malformation -- each already-returned
+/// span is independently valid (`detail::skip_value` only ever appends a
+/// span for a value it fully, successfully parsed), so a partial result is
+/// safe to hand back rather than discarding correctly-parsed prefix
+/// elements. In practice this path is unreachable for any `array_span`
+/// this file itself produced (already validated by the `skip_value` call
+/// that discovered it); it exists only as a defensive fallback for a
+/// hand-built/adversarial span passed directly to this function.
+inline std::vector<ValueSpan> array_elements(std::string_view doc, const ValueSpan& array_span) {
+    std::vector<ValueSpan> result;
+    if (array_span.start > array_span.end || array_span.end > doc.size())
+        return result;
+    if (array_span.is_string || array_span.start >= array_span.end || doc[array_span.start] != '[')
+        return result;
+
+    std::size_t pos = detail::skip_ws(doc, array_span.start + 1);
+    if (pos >= doc.size())
+        return result;
+    if (doc[pos] == ']')
+        return result;  // empty array: no elements
+
+    while (true) {
+        const auto ve = detail::skip_value(doc, pos);
+        if (!ve)
+            return result;  // malformed value: stop, keep already-found elements (see doc comment)
+        result.push_back(ValueSpan{pos, *ve, doc[pos] == '"'});
+
+        pos = detail::skip_ws(doc, *ve);
+        if (pos >= doc.size())
+            return result;
+        if (doc[pos] == ',') {
+            ++pos;
+            continue;
+        }
+        if (doc[pos] == ']')
+            break;
+        return result;  // malformed separator: stop, keep already-found elements
+    }
+    return result;
+}
+
 /// Replaces `[span.start, span.end)` in `doc` with `replacement` (already
 /// JSON-encoded by the caller, e.g. via `encode_string`). Every byte
 /// outside the span is copied through unchanged. Throws
@@ -1038,6 +1182,35 @@ inline std::vector<StringLeaf> string_leaves(std::string_view doc, const std::ve
     }
 
     return result;
+}
+
+/// Scoped variant of `string_leaves`: walks `relative_root` starting from
+/// `container` (a `ValueSpan` previously returned by `find_value`/
+/// `find_value_in` against this same `doc`) instead of the document root.
+/// Same offset-readd contract as `find_value_in` (see its doc comment):
+/// implemented by delegating to `string_leaves` over
+/// `doc.substr(container.start, container.end - container.start)`, then
+/// adding `container.start` onto every returned leaf's `span.start`/
+/// `span.end` so each leaf's span is expressed in `doc`'s own byte offsets.
+/// `relative_root` is walked relative to `container`, exactly as
+/// `find_value_in`'s `relative_path` is -- an empty `relative_root` walks
+/// every string leaf under `container` itself. Exists for the same reason
+/// `find_value_in` does (see its doc comment): a caller that already holds
+/// an element's span (e.g. one array element out of many) can walk its
+/// string leaves in O(that element's size) instead of O(document size).
+inline std::vector<StringLeaf> string_leaves_in(std::string_view doc,
+                                                const ValueSpan& container,
+                                                const std::vector<PathSeg>& relative_root) {
+    if (container.start > container.end || container.end > doc.size())
+        return {};
+
+    const std::string_view sub = doc.substr(container.start, container.end - container.start);
+    std::vector<StringLeaf> leaves = string_leaves(sub, relative_root);
+    for (StringLeaf& leaf : leaves) {
+        leaf.span.start += container.start;
+        leaf.span.end += container.start;
+    }
+    return leaves;
 }
 
 }  // namespace Guard::Json
