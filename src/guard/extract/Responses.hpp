@@ -172,7 +172,9 @@ inline std::string type_of(std::string_view body, const ValueSpan& container) {
 // repeated `X.Type == gjson.String && X.String() != ""` guard at every
 // extraction site in both Go files. A no-op for a missing field, a
 // non-string field, or a field that decodes to "".
-inline void push_if_nonempty_string(std::string_view body, std::vector<ContentField>& out, std::vector<PathSeg> path,
+inline void push_if_nonempty_string(std::string_view body,
+                                    std::vector<ContentField>& out,
+                                    std::vector<PathSeg> path,
                                     const std::optional<ValueSpan>& span) {
     if (!span || !span->is_string)
         return;
@@ -189,8 +191,10 @@ inline void push_if_nonempty_string(std::string_view body, std::vector<ContentFi
 // element via ONE `array_elements` call (see the file-level doc comment's
 // linear-time note), so surviving elements keep their real array index
 // even when earlier/later siblings (e.g. `input_image`) are skipped.
-inline void collect_text_parts(std::string_view body, std::vector<ContentField>& out,
-                               const std::vector<PathSeg>& base_path, const ValueSpan& array_span) {
+inline void collect_text_parts(std::string_view body,
+                               std::vector<ContentField>& out,
+                               const std::vector<PathSeg>& base_path,
+                               const ValueSpan& array_span) {
     const auto parts = Guard::Json::array_elements(body, array_span);
     for (std::size_t j = 0; j < parts.size(); ++j) {
         const ValueSpan& part_span = parts[j];
@@ -205,8 +209,10 @@ inline void collect_text_parts(std::string_view body, std::vector<ContentField>&
 
 // One `input[i]` element, already resolved to `item_span` -- ports
 // `collectResponsesInputItemFields`.
-inline void collect_input_item_fields(std::string_view body, std::vector<ContentField>& out,
-                                      const std::vector<PathSeg>& item_path, const ValueSpan& item_span) {
+inline void collect_input_item_fields(std::string_view body,
+                                      std::vector<ContentField>& out,
+                                      const std::vector<PathSeg>& item_path,
+                                      const ValueSpan& item_span) {
     const std::string type = type_of(body, item_span);
 
     if (type == "function_call_output") {
@@ -220,7 +226,9 @@ inline void collect_input_item_fields(std::string_view body, std::vector<Content
     }
 
     if (type == "function_call") {
-        push_if_nonempty_string(body, out, extend(item_path, key_seg("arguments")),
+        push_if_nonempty_string(body,
+                                out,
+                                extend(item_path, key_seg("arguments")),
                                 Guard::Json::find_value_in(body, item_span, {key_seg("arguments")}));
         return;
     }
@@ -243,8 +251,10 @@ inline void collect_input_item_fields(std::string_view body, std::vector<Content
 // (`summary_text`) and `content` (`reasoning_text`) arrays below, each with
 // a single allowed part type (unlike the request side's three-type
 // `collect_text_parts`).
-inline void collect_typed_text_parts(std::string_view body, std::vector<ContentField>& out,
-                                     const std::vector<PathSeg>& base_path, const ValueSpan& array_span,
+inline void collect_typed_text_parts(std::string_view body,
+                                     std::vector<ContentField>& out,
+                                     const std::vector<PathSeg>& base_path,
+                                     const ValueSpan& array_span,
                                      std::string_view allowed_type) {
     const auto parts = Guard::Json::array_elements(body, array_span);
     for (std::size_t j = 0; j < parts.size(); ++j) {
@@ -263,8 +273,10 @@ inline void collect_typed_text_parts(std::string_view body, std::vector<ContentF
 // `array_elements`-resolved `output[i]` span (no re-lookup); the public
 // `extract_response_item_fields` resolves its single item via `find_value`
 // first, then delegates here.
-inline void collect_item_fields(std::string_view body, std::vector<ContentField>& out,
-                                const std::vector<PathSeg>& item_path, const ValueSpan& item_span) {
+inline void collect_item_fields(std::string_view body,
+                                std::vector<ContentField>& out,
+                                const std::vector<PathSeg>& item_path,
+                                const ValueSpan& item_span) {
     const std::string type = type_of(body, item_span);
 
     if (type == "message") {
@@ -275,7 +287,9 @@ inline void collect_item_fields(std::string_view body, std::vector<ContentField>
     }
 
     if (type == "function_call") {
-        push_if_nonempty_string(body, out, extend(item_path, key_seg("arguments")),
+        push_if_nonempty_string(body,
+                                out,
+                                extend(item_path, key_seg("arguments")),
                                 Guard::Json::find_value_in(body, item_span, {key_seg("arguments")}));
         return;
     }
@@ -291,8 +305,7 @@ inline void collect_item_fields(std::string_view body, std::vector<ContentField>
         // field of this `content` array and is never itself read.
         const auto content_span = Guard::Json::find_value_in(body, item_span, {key_seg("content")});
         if (content_span && is_array_span(body, *content_span))
-            collect_typed_text_parts(body, out, extend(item_path, key_seg("content")), *content_span,
-                                     "reasoning_text");
+            collect_typed_text_parts(body, out, extend(item_path, key_seg("content")), *content_span, "reasoning_text");
         return;
     }
 
@@ -345,7 +358,7 @@ inline ExtractResult extract_request(std::string_view body) {
 /// per-type rules; `encrypted_content` is never read (no path built here
 /// ever names it).
 inline std::vector<ContentField> extract_response_item_fields(std::string_view body,
-                                                               const std::vector<Guard::Json::PathSeg>& item_path) {
+                                                              const std::vector<Guard::Json::PathSeg>& item_path) {
     std::vector<ContentField> fields;
     const auto item_span = Guard::Json::find_value(body, item_path);
     if (item_span)
@@ -365,7 +378,7 @@ inline std::vector<ContentField> extract_response_item_fields(std::string_view b
 /// `extract_response_item_fields` per element (that would re-resolve each
 /// item's span via a second `find_value` call from the document root).
 inline std::vector<ContentField> extract_response_output_fields(std::string_view body,
-                                                                 const std::vector<Guard::Json::PathSeg>& base) {
+                                                                const std::vector<Guard::Json::PathSeg>& base) {
     const auto output_path = detail::extend(base, detail::key_seg("output"));
     const auto output_span = Guard::Json::find_value(body, output_path);
     if (!output_span || !detail::is_array_span(body, *output_span))

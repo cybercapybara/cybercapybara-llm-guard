@@ -277,8 +277,9 @@ TEST(GuardExtractRespRequest, FieldsPatchableViaSpliceAll) {
         edits.emplace_back(f.span, Guard::Json::encode_string("<MASKED>", true));
     const std::string patched = Guard::Json::splice_all(body, edits);
 
-    EXPECT_EQ(patched,
-              R"({"instructions":"<MASKED>","input":[{"role":"user","content":[{"type":"input_text","text":"<MASKED>"}]}]})");
+    EXPECT_EQ(
+        patched,
+        R"({"instructions":"<MASKED>","input":[{"role":"user","content":[{"type":"input_text","text":"<MASKED>"}]}]})");
 }
 
 // ── extract_request: probe-verified edge cases ──────────────────────────
@@ -289,7 +290,8 @@ TEST(GuardExtractRespRequest, InputPresentButWrongTypeIsEmptyNotUnsupported) {
     // scannable -- a number/null/bool/object "input" degrades to zero
     // fields, not an error, exactly like a present-but-non-array
     // `messages`/`choices` does in ChatCompletions.hpp.
-    for (const std::string_view body : {R"({"input":123})", R"({"input":null})", R"({"input":true})", R"({"input":{}})"}) {
+    for (const std::string_view body :
+         {R"({"input":123})", R"({"input":null})", R"({"input":true})", R"({"input":{}})"}) {
         SCOPED_TRACE(body);
         const auto result = Guard::Extract::Responses::extract_request(body);
         ASSERT_FALSE(is_unsupported(result));
@@ -434,8 +436,7 @@ TEST(GuardExtractRespResponse, OutputFieldsSpliceRoundTripWithBasePath) {
     // on the masked value, not the original -- confirms the path is still
     // usable against the PATCHED document too (paths are index-based, and
     // splice_all never changes element counts/ordering).
-    const auto refound =
-        Guard::Json::find_value(patched, {key("response"), key("output"), idx(2), key("arguments")});
+    const auto refound = Guard::Json::find_value(patched, {key("response"), key("output"), idx(2), key("arguments")});
     ASSERT_TRUE(refound.has_value());
     EXPECT_EQ(Guard::Json::decode_string(patched.substr(refound->start, refound->end - refound->start)), "<MASKED>");
 }
@@ -464,9 +465,9 @@ TEST(GuardExtractRespResponse, ItemFieldsUnknownTypeIsEmpty) {
 // the reasoning trace of a reasoning model.
 TEST(GuardExtractRespResponse, ItemFieldsReasoningContentAndSummaryBothScannedEncryptedContentUntouched) {
     const std::string body = R"({"item":{"type":"reasoning",)"
-                              R"("summary":[{"type":"summary_text","text":"sum <EMAIL_1>"}],)"
-                              R"("content":[{"type":"reasoning_text","text":"cot <EMAIL_1>"}],)"
-                              R"("encrypted_content":"opaque"}})";
+                             R"("summary":[{"type":"summary_text","text":"sum <EMAIL_1>"}],)"
+                             R"("content":[{"type":"reasoning_text","text":"cot <EMAIL_1>"}],)"
+                             R"("encrypted_content":"opaque"}})";
     const auto got = Guard::Extract::Responses::extract_response_item_fields(body, {key("item")});
     ASSERT_EQ(got.size(), 2u);
     EXPECT_EQ(path_str(got[0].path), "item.summary.0.text");
