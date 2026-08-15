@@ -333,28 +333,28 @@ GUARD_JSON_NOINLINE inline std::optional<std::size_t> open_or_scalar(std::string
     if (c == 'n')
         return match_literal(doc, p, "null") ? std::optional<std::size_t>(p + 4) : std::nullopt;
 
-    // GCC 13 at -O3 has a confirmed false positive on these two
-    // `push_back` calls: `-Werror=stringop-overflow` on
-    // `vector<WalkFrame>::_M_realloc_insert`/`construct_at`'s inlined
-    // placement-new, reported as "writing 1 byte into a region of size 0"
-    // at a nonsensical NEGATIVE offset into an object GCC itself computed
-    // as ~2^63 bytes -- internally self-contradictory, and independent of
-    // both initial capacity (tried `frames.reserve(...)` first: no effect)
-    // and caller-side inlining depth (tried extracting this whole function
-    // with `noinline`, above: reduced the backtrace to a single inlining
-    // chain but did not remove the warning). `WalkFrame` is a 2-byte
-    // `{char; enum class : uint8_t;}` aggregate; this specific
-    // size/layout combination through `vector::push_back` under `-O3`
-    // matches publicly reported GCC 12/13 `-Wstringop-overflow`
-    // false-positive reports (e.g. GCC PR 106252-class reallocation
-    // mis-analysis) rather than anything this scanner does with the
-    // vector -- `frames` is a plain local `std::vector`, standard
-    // `push_back` on a POD, nothing more exotic. Suppressed at exactly
-    // these two call sites (not project-wide, not for the warning class
-    // in general -- `-Wstringop-overflow` stays fully enabled and gating
-    // for every other line in this codebase) with a paired push/pop so
-    // the scope is unambiguous. Not reachable on Clang, which has no
-    // `-Wstringop-overflow` diagnostic to begin with.
+        // GCC 13 at -O3 has a confirmed false positive on these two
+        // `push_back` calls: `-Werror=stringop-overflow` on
+        // `vector<WalkFrame>::_M_realloc_insert`/`construct_at`'s inlined
+        // placement-new, reported as "writing 1 byte into a region of size 0"
+        // at a nonsensical NEGATIVE offset into an object GCC itself computed
+        // as ~2^63 bytes -- internally self-contradictory, and independent of
+        // both initial capacity (tried `frames.reserve(...)` first: no effect)
+        // and caller-side inlining depth (tried extracting this whole function
+        // with `noinline`, above: reduced the backtrace to a single inlining
+        // chain but did not remove the warning). `WalkFrame` is a 2-byte
+        // `{char; enum class : uint8_t;}` aggregate; this specific
+        // size/layout combination through `vector::push_back` under `-O3`
+        // matches publicly reported GCC 12/13 `-Wstringop-overflow`
+        // false-positive reports (e.g. GCC PR 106252-class reallocation
+        // mis-analysis) rather than anything this scanner does with the
+        // vector -- `frames` is a plain local `std::vector`, standard
+        // `push_back` on a POD, nothing more exotic. Suppressed at exactly
+        // these two call sites (not project-wide, not for the warning class
+        // in general -- `-Wstringop-overflow` stays fully enabled and gating
+        // for every other line in this codebase) with a paired push/pop so
+        // the scope is unambiguous. Not reachable on Clang, which has no
+        // `-Wstringop-overflow` diagnostic to begin with.
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
