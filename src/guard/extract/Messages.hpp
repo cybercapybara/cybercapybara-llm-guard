@@ -16,22 +16,39 @@
  *          `tests/unit/test_guard_extract_msg.cpp` -- a future caller must
  *          not expect `Unsupported` for a bad Messages-format body.
  *
- *          **Array bounds are discovered by probing, not by decoding a
- *          length.** `Json::find_value` addresses one value at a time (see
- *          `Json.hpp`), so `detail::for_each_element` below walks index 0,
- *          1, 2, ... via repeated `find_value` calls on the ELEMENT itself
- *          (never a sub-field of it) and stops at the first `nullopt`.
- *          Probing the element -- not e.g. `elem.content` -- matters: a
- *          message that legitimately has no `content` key must not be
- *          mistaken for "end of the messages array".
+ *          **Depends on `Types.hpp`, not `Extract.hpp`.** `ContentField`/
+ *          `Unsupported`/`ExtractResult` live in `Types.hpp` specifically so
+ *          `Extract.hpp` can `#include` this file for real (calling
+ *          `Messages::extract_request`/`extract_response` directly) without
+ *          a circular pair -- see `Types.hpp`'s file-level doc comment and
+ *          `Guard::Extract::ChatCompletions` (`ChatCompletions.hpp`, Task
+ *          2.2), which established this shape first; this file follows it.
+ *
+ *          **Linear in document size, not quadratic in element count.**
+ *          Every array this file walks (`system` block arrays, `messages`,
+ *          `messages[i].content`, `tool_result` content arrays) is resolved
+ *          via ONE `Guard::Json::array_elements` call -- a single forward
+ *          pass over that array's bytes -- rather than per-index
+ *          `find_value`/`find_value_in` probing, which re-scans an array
+ *          from its own opening bracket on every single index and is
+ *          quadratic in element count (measured and banned; see
+ *          `ChatCompletions.hpp`'s file-level doc comment for the
+ *          measurements that established this). Each element's own nested
+ *          fields are then resolved via `Guard::Json::find_value_in`/
+ *          `Guard::Json::string_leaves_in`, SCOPED to that element's own
+ *          span, not re-walked from the document root. The whole pass
+ *          costs O(document size).
  *
  *          **Empty-string filtering mirrors Go's `gjson.Result.String() !=
  *          ""` guard at every extraction site**, including
  *          `collectJSONStringLeaves` (`extract.go:99`) -- `Json::
- *          string_leaves` deliberately does NOT filter empty leaves itself
- *          (see `Json.hpp`'s doc comment), so every leaf this file pulls
- *          from it is filtered here, in `detail::collect_messages_content_
- *          blocks`'s `tool_use` branch, before becoming a `ContentField`.
+ *          string_leaves`/`string_leaves_in` deliberately do NOT filter
+ *          empty leaves themselves (see `Json.hpp`'s doc comment), so every
+ *          leaf this file pulls from `string_leaves_in` is filtered here,
+ *          in `detail::collect_messages_content_blocks`'s `tool_use`
+ *          branch, before becoming a `ContentField`. Every OTHER text field
+ *          goes through the single `detail::push_if_nonempty_string`
+ *          chokepoint, which applies the same filter.
  *
  *          **Path segments need no escaping.** Go's `gjson`/`sjson` address
  *          a field via one dotted-and-escaped string, so `escapePathKey` in
@@ -51,21 +68,8 @@
 #include <utility>
 #include <vector>
 
+#include "guard/extract/Types.hpp"
 #include "guard/json/Json.hpp"
-
-// This header uses `Guard::Extract::ContentField`, `Guard::Extract::
-// Unsupported`, and `Guard::Extract::ExtractResult`, all defined in
-// `Extract.hpp`. It deliberately does NOT `#include "guard/extract/
-// Extract.hpp"` itself: `Extract.hpp` defines those types, then `#include`s
-// THIS file (after defining them) to wire `ApiFormat::Messages` into its
-// dispatch switch. A back-`#include` here would create a circular pair
-// whose correctness depends on which header is included first -- fragile to
-// get right without a local build to check it against (this task is CI-only,
-// no local `cmake`/`make`). One-directional inclusion sidesteps the issue
-// entirely: this file is only ever included transitively via `Extract.hpp`
-// (or after an explicit prior `#include "guard/extract/Extract.hpp"`), never
-// standalone -- attempting the latter fails to compile with an
-// incomplete-type error on `ContentField`, which is the intended signal.
 
 namespace Guard::Extract::Messages {
 
@@ -74,170 +78,177 @@ namespace detail {
 using Guard::Json::PathSeg;
 using Guard::Json::ValueSpan;
 
-inline PathSeg key(std::string k) {
-    return PathSeg{std::move(k), 0, false};
+inline PathSeg key_seg(std::string key) {
+    return PathSeg{std::move(key), 0, false};
 }
 
-inline PathSeg idx(std::size_t i) {
-    return PathSeg{"", i, true};
+inline PathSeg idx_seg(std::size_t index) {
+    return PathSeg{"", index, true};
 }
 
-inline std::vector<PathSeg> with_seg(std::vector<PathSeg> path, PathSeg seg) {
-    path.push_back(std::move(seg));
-    return path;
+// True iff `span` describes a JSON array value -- see `ChatCompletions.hpp`
+// (`is_array_span`, same shape) for why a non-array value is treated as
+// zero elements rather than gjson's one-element self-wrap.
+inline bool is_array_span(std::string_view body, const ValueSpan& span) {
+    return !span.is_string && span.start < span.end && body[span.start] == '[';
 }
 
-// Reads and decodes a string-typed field's value if present; a non-string
-// span and an empty decoded string both yield `nullopt`. The single
-// chokepoint mirroring Go's `Result.Type == gjson.String && Result.String()
-// != ""` guard used at every text-field extraction site in extract.go /
-// extract_response.go.
-inline std::optional<std::pair<ValueSpan, std::string>> string_field(std::string_view body,
-                                                                     const std::vector<PathSeg>& path) {
-    const auto span = Guard::Json::find_value(body, path);
+// The single choke point every plain-text extracted field passes through:
+// mirrors the `Type == gjson.String && String() != ""` guard repeated at
+// every text-field extraction site in extract.go / extract_response.go.
+// Appends nothing for a missing field, a non-string field, or a JSON string
+// that decodes to "".
+inline void push_if_nonempty_string(std::string_view body,
+                                    std::vector<ContentField>& out,
+                                    std::vector<PathSeg> path,
+                                    const std::optional<ValueSpan>& span) {
     if (!span || !span->is_string)
-        return std::nullopt;
-    std::string decoded = Guard::Json::decode_string(body.substr(span->start, span->end - span->start));
-    if (decoded.empty())
-        return std::nullopt;
-    return std::make_pair(*span, std::move(decoded));
+        return;
+    std::string text = Guard::Json::decode_string(body.substr(span->start, span->end - span->start));
+    if (text.empty())
+        return;
+    out.push_back(ContentField{std::move(path), *span, std::move(text), false});
 }
 
-// `block.Get("type").String()` -- the discriminator read at every content
-// block (`text`/`tool_use`/`tool_result`/`thinking`/`redacted_thinking`/
-// unknown). A missing or non-string `type` yields `""`, which -- as in the
-// Go original -- simply never matches any of the known literals below, so
-// falls through to "skip this block" without needing its own branch.
-inline std::string block_type(std::string_view body, const std::vector<PathSeg>& path) {
-    const auto span = Guard::Json::find_value(body, with_seg(path, key("type")));
+// `block.Get("type").String()`, scoped to `block_span` -- the discriminator
+// read at every content block (`text`/`tool_use`/`tool_result`/`thinking`/
+// `redacted_thinking`/unknown). A missing or non-string `type` yields `""`,
+// which -- as in the Go original -- simply never matches any of the known
+// literals below, so falls through to "skip this block" without needing
+// its own branch.
+inline std::string block_type(std::string_view body, const ValueSpan& block_span) {
+    const auto span = Guard::Json::find_value_in(body, block_span, {key_seg("type")});
     if (!span || !span->is_string)
         return {};
     return Guard::Json::decode_string(body.substr(span->start, span->end - span->start));
 }
 
-inline bool is_array_at(std::string_view body, const ValueSpan& span) {
-    return !span.is_string && span.start < body.size() && body[span.start] == '[';
-}
-
-// Probes array elements `array_path[0]`, `array_path[1]`, ... via
-// `find_value` on the ELEMENT itself until the first missing index, calling
-// `fn(i, elem_path)` for each found one. Yields zero calls for a
-// missing/non-array `array_path` (find_value's ordinary "not found" result
-// for index 0 against a non-`[`-opening value) -- callers never need to
-// pre-check "is this an array" separately.
-template <typename Fn>
-void for_each_element(std::string_view body, const std::vector<PathSeg>& array_path, Fn&& fn) {
-    for (std::size_t i = 0;; ++i) {
-        std::vector<PathSeg> elem_path = with_seg(array_path, idx(i));
-        if (!Guard::Json::find_value(body, elem_path))
-            break;
-        fn(i, elem_path);
+// Ports `collectTypedTextParts` (extract.go): non-empty `{type:"text",
+// text}` blocks of the array at `array_span`, as `<array_path>.<i>.text`
+// fields. Used for both request-side `system` block arrays and
+// `tool_result` block arrays (identical shape in the Go source). `array_span`
+// is walked via ONE `array_elements` call -- see the file-level doc comment.
+inline void collect_typed_text_parts(std::string_view body,
+                                     std::vector<ContentField>& out,
+                                     const std::vector<PathSeg>& array_path,
+                                     const ValueSpan& array_span) {
+    const auto parts = Guard::Json::array_elements(body, array_span);
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        const ValueSpan& part_span = parts[i];
+        if (block_type(body, part_span) != "text")
+            continue;
+        std::vector<PathSeg> text_path = array_path;
+        text_path.push_back(idx_seg(i));
+        text_path.push_back(key_seg("text"));
+        push_if_nonempty_string(body, out, text_path, Guard::Json::find_value_in(body, part_span, {key_seg("text")}));
     }
 }
 
-// Ports `collectTypedTextParts` (extract.go): non-empty `{type:"text",
-// text}` blocks of the array at `array_path`, as `<array_path>.<i>.text`
-// fields. Used for both request-side `system` block arrays and
-// `tool_result` block arrays (identical shape in the Go source).
-inline std::vector<Guard::Extract::ContentField> collect_typed_text_parts(std::string_view body,
-                                                                          const std::vector<PathSeg>& array_path) {
-    std::vector<Guard::Extract::ContentField> fields;
-    for_each_element(body, array_path, [&](std::size_t, const std::vector<PathSeg>& elem_path) {
-        if (block_type(body, elem_path) != "text")
-            return;
-        const auto text_path = with_seg(elem_path, key("text"));
-        if (auto sf = string_field(body, text_path))
-            fields.push_back(Guard::Extract::ContentField{text_path, sf->first, std::move(sf->second), false});
-    });
-    return fields;
-}
-
 // Ports `collectMessagesContentBlocks` (extract.go): every scannable field
-// inside one `messages[i].content` block array.
-inline std::vector<Guard::Extract::ContentField> collect_messages_content_blocks(
-    std::string_view body, const std::vector<PathSeg>& array_path) {
-    std::vector<Guard::Extract::ContentField> fields;
-    for_each_element(body, array_path, [&](std::size_t, const std::vector<PathSeg>& elem_path) {
-        const std::string type = block_type(body, elem_path);
+// inside one `messages[i].content` block array. `array_span` is walked via
+// ONE `array_elements` call -- see the file-level doc comment.
+inline void collect_messages_content_blocks(std::string_view body,
+                                            std::vector<ContentField>& out,
+                                            const std::vector<PathSeg>& array_path,
+                                            const ValueSpan& array_span) {
+    const auto blocks = Guard::Json::array_elements(body, array_span);
+    for (std::size_t i = 0; i < blocks.size(); ++i) {
+        const ValueSpan& block_span = blocks[i];
+        std::vector<PathSeg> block_path = array_path;
+        block_path.push_back(idx_seg(i));
+
+        const std::string type = block_type(body, block_span);
         if (type == "text") {
-            const auto text_path = with_seg(elem_path, key("text"));
-            if (auto sf = string_field(body, text_path))
-                fields.push_back(Guard::Extract::ContentField{text_path, sf->first, std::move(sf->second), false});
+            std::vector<PathSeg> text_path = block_path;
+            text_path.push_back(key_seg("text"));
+            push_if_nonempty_string(
+                body, out, text_path, Guard::Json::find_value_in(body, block_span, {key_seg("text")}));
         } else if (type == "tool_use") {
             // Every string leaf of `input`, decoded and individually
-            // addressed -- ports `collectJSONStringLeaves`. Empty leaves are
-            // filtered HERE (Json::string_leaves does not); see the
-            // file-level doc comment.
-            const auto input_path = with_seg(elem_path, key("input"));
-            for (auto& leaf : Guard::Json::string_leaves(body, input_path)) {
+            // addressed -- ports `collectJSONStringLeaves`. `string_leaves_in`
+            // is scoped to `input`'s own span (found once via one
+            // `find_value_in` call) rather than re-walked from the document
+            // root. Empty leaves are filtered HERE (`string_leaves_in` does
+            // not); see the file-level doc comment.
+            const auto input_span = Guard::Json::find_value_in(body, block_span, {key_seg("input")});
+            if (!input_span)
+                continue;
+            std::vector<PathSeg> input_path = block_path;
+            input_path.push_back(key_seg("input"));
+            for (auto& leaf : Guard::Json::string_leaves_in(body, *input_span, {})) {
                 std::string decoded =
                     Guard::Json::decode_string(body.substr(leaf.span.start, leaf.span.end - leaf.span.start));
-                if (!decoded.empty())
-                    fields.push_back(Guard::Extract::ContentField{leaf.path, leaf.span, std::move(decoded), false});
+                if (decoded.empty())
+                    continue;
+                std::vector<PathSeg> leaf_path = input_path;
+                leaf_path.insert(leaf_path.end(), leaf.path.begin(), leaf.path.end());
+                out.push_back(ContentField{std::move(leaf_path), leaf.span, std::move(decoded), false});
             }
         } else if (type == "tool_result") {
-            const auto content_path = with_seg(elem_path, key("content"));
-            const auto cspan = Guard::Json::find_value(body, content_path);
-            if (!cspan)
-                return;
-            if (cspan->is_string) {
-                if (auto sf = string_field(body, content_path))
-                    fields.push_back(
-                        Guard::Extract::ContentField{content_path, sf->first, std::move(sf->second), false});
-            } else if (is_array_at(body, *cspan)) {
-                auto parts = collect_typed_text_parts(body, content_path);
-                fields.insert(
-                    fields.end(), std::make_move_iterator(parts.begin()), std::make_move_iterator(parts.end()));
+            const auto content_span = Guard::Json::find_value_in(body, block_span, {key_seg("content")});
+            if (!content_span)
+                continue;
+            std::vector<PathSeg> content_path = block_path;
+            content_path.push_back(key_seg("content"));
+            if (content_span->is_string) {
+                push_if_nonempty_string(body, out, content_path, content_span);
+            } else if (is_array_span(body, *content_span)) {
+                collect_typed_text_parts(body, out, content_path, *content_span);
             }
         }
         // Unknown block types: nothing extracted (same as Go's switch with
         // no matching case).
-    });
-    return fields;
+    }
 }
 
 }  // namespace detail
 
 /// Ports `ExtractRequestContent` (extract.go). See the file-level doc
-/// comment for the empty-filter and array-probing notes. Handles: top-level
+/// comment for the empty-filter and linear-walk notes. Handles: top-level
 /// `system` (a string, or an array of `{type:"text", text}` blocks);
 /// `messages[i].content` (a string, or a block array of `text`/`tool_use`/
 /// `tool_result`). Extraction order mirrors the Go function's document
 /// order: `system` first (in full), then `messages` left to right. Never
 /// returns `Unsupported` -- a malformed body simply yields an empty vector.
-inline Guard::Extract::ExtractResult extract_request(std::string_view body) {
-    std::vector<Guard::Extract::ContentField> fields;
+inline ExtractResult extract_request(std::string_view body) {
+    using detail::idx_seg;
+    using detail::key_seg;
+
+    std::vector<ContentField> fields;
 
     {
-        const std::vector<Guard::Json::PathSeg> sys_path = {detail::key("system")};
-        if (const auto span = Guard::Json::find_value(body, sys_path)) {
-            if (span->is_string) {
-                if (auto sf = detail::string_field(body, sys_path))
-                    fields.push_back(Guard::Extract::ContentField{sys_path, sf->first, std::move(sf->second), false});
-            } else if (detail::is_array_at(body, *span)) {
-                auto parts = detail::collect_typed_text_parts(body, sys_path);
-                fields.insert(
-                    fields.end(), std::make_move_iterator(parts.begin()), std::make_move_iterator(parts.end()));
+        const std::vector<Guard::Json::PathSeg> sys_path{key_seg("system")};
+        const auto sys_span = Guard::Json::find_value(body, sys_path);
+        if (sys_span) {
+            if (sys_span->is_string) {
+                detail::push_if_nonempty_string(body, fields, sys_path, sys_span);
+            } else if (detail::is_array_span(body, *sys_span)) {
+                detail::collect_typed_text_parts(body, fields, sys_path, *sys_span);
             }
         }
     }
 
-    detail::for_each_element(
-        body, {detail::key("messages")}, [&](std::size_t, const std::vector<Guard::Json::PathSeg>& msg_path) {
-            const auto content_path = detail::with_seg(msg_path, detail::key("content"));
-            const auto cspan = Guard::Json::find_value(body, content_path);
-            if (!cspan)
-                return;
-            if (cspan->is_string) {
-                if (auto sf = detail::string_field(body, content_path))
-                    fields.push_back(
-                        Guard::Extract::ContentField{content_path, sf->first, std::move(sf->second), false});
-            } else if (detail::is_array_at(body, *cspan)) {
-                auto parts = detail::collect_messages_content_blocks(body, content_path);
-                fields.insert(
-                    fields.end(), std::make_move_iterator(parts.begin()), std::make_move_iterator(parts.end()));
+    const std::vector<Guard::Json::PathSeg> messages_path{key_seg("messages")};
+    const auto messages_span = Guard::Json::find_value(body, messages_path);
+    if (messages_span && detail::is_array_span(body, *messages_span)) {
+        // ONE forward pass over `messages` -- see the file-level doc comment.
+        const auto elements = Guard::Json::array_elements(body, *messages_span);
+        for (std::size_t i = 0; i < elements.size(); ++i) {
+            const auto content_span = Guard::Json::find_value_in(body, elements[i], {key_seg("content")});
+            if (!content_span)
+                continue;
+
+            std::vector<Guard::Json::PathSeg> content_path = messages_path;
+            content_path.push_back(idx_seg(i));
+            content_path.push_back(key_seg("content"));
+
+            if (content_span->is_string) {
+                detail::push_if_nonempty_string(body, fields, content_path, content_span);
+            } else if (detail::is_array_span(body, *content_span)) {
+                detail::collect_messages_content_blocks(body, fields, content_path, *content_span);
             }
-        });
+        }
+    }
 
     return fields;
 }
@@ -252,34 +263,51 @@ inline Guard::Extract::ExtractResult extract_request(std::string_view body) {
 /// != "{}"` guard. `redacted_thinking` and any unknown block type are
 /// skipped entirely (forward-compatible byte-identical passthrough). Never
 /// returns `Unsupported` -- a malformed body simply yields an empty vector.
-inline Guard::Extract::ExtractResult extract_response(std::string_view body) {
-    std::vector<Guard::Extract::ContentField> fields;
+inline ExtractResult extract_response(std::string_view body) {
+    using detail::idx_seg;
+    using detail::key_seg;
 
-    detail::for_each_element(
-        body, {detail::key("content")}, [&](std::size_t, const std::vector<Guard::Json::PathSeg>& elem_path) {
-            const std::string type = detail::block_type(body, elem_path);
-            if (type == "text") {
-                const auto text_path = detail::with_seg(elem_path, detail::key("text"));
-                if (auto sf = detail::string_field(body, text_path))
-                    fields.push_back(Guard::Extract::ContentField{text_path, sf->first, std::move(sf->second), false});
-            } else if (type == "thinking") {
-                // `signature` is encrypted and NOT extracted -- see the
-                // file-level doc comment.
-                const auto thinking_path = detail::with_seg(elem_path, detail::key("thinking"));
-                if (auto sf = detail::string_field(body, thinking_path))
-                    fields.push_back(
-                        Guard::Extract::ContentField{thinking_path, sf->first, std::move(sf->second), false});
-            } else if (type == "tool_use") {
-                const auto input_path = detail::with_seg(elem_path, detail::key("input"));
-                const auto ispan = Guard::Json::find_value(body, input_path);
-                if (ispan && !ispan->is_string && ispan->start < body.size() && body[ispan->start] == '{') {
-                    std::string raw(body.substr(ispan->start, ispan->end - ispan->start));
-                    if (raw != "{}")
-                        fields.push_back(Guard::Extract::ContentField{input_path, *ispan, std::move(raw), true});
+    std::vector<ContentField> fields;
+
+    const std::vector<Guard::Json::PathSeg> content_path{key_seg("content")};
+    const auto content_span = Guard::Json::find_value(body, content_path);
+    if (!content_span || !detail::is_array_span(body, *content_span))
+        return fields;  // missing/non-array content: empty, not an error
+
+    // ONE forward pass over `content` -- see the file-level doc comment.
+    const auto blocks = Guard::Json::array_elements(body, *content_span);
+    for (std::size_t i = 0; i < blocks.size(); ++i) {
+        const Guard::Json::ValueSpan& block_span = blocks[i];
+        std::vector<Guard::Json::PathSeg> block_path = content_path;
+        block_path.push_back(idx_seg(i));
+
+        const std::string type = detail::block_type(body, block_span);
+        if (type == "text") {
+            std::vector<Guard::Json::PathSeg> text_path = block_path;
+            text_path.push_back(key_seg("text"));
+            detail::push_if_nonempty_string(
+                body, fields, text_path, Guard::Json::find_value_in(body, block_span, {key_seg("text")}));
+        } else if (type == "thinking") {
+            // `signature` is encrypted and NOT extracted -- see the
+            // file-level doc comment.
+            std::vector<Guard::Json::PathSeg> thinking_path = block_path;
+            thinking_path.push_back(key_seg("thinking"));
+            detail::push_if_nonempty_string(
+                body, fields, thinking_path, Guard::Json::find_value_in(body, block_span, {key_seg("thinking")}));
+        } else if (type == "tool_use") {
+            const auto input_span = Guard::Json::find_value_in(body, block_span, {key_seg("input")});
+            if (input_span && !input_span->is_string && input_span->start < input_span->end &&
+                body[input_span->start] == '{') {
+                std::string raw(body.substr(input_span->start, input_span->end - input_span->start));
+                if (raw != "{}") {
+                    std::vector<Guard::Json::PathSeg> input_path = block_path;
+                    input_path.push_back(key_seg("input"));
+                    fields.push_back(ContentField{std::move(input_path), *input_span, std::move(raw), true});
                 }
             }
-            // "redacted_thinking" and unknown types: nothing extracted.
-        });
+        }
+        // "redacted_thinking" and unknown types: nothing extracted.
+    }
 
     return fields;
 }
