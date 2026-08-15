@@ -816,9 +816,13 @@ TEST(GuardExtract, WantsStreamLooseGjsonBoolCoercion) {
     EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":{}})"));
 }
 
-// ── Extract dispatch stubs (Tasks 2.2-2.4 land the real bodies) ─────────
+// ── Extract dispatch stubs (Tasks 2.2-2.3 still land; 2.4 already wired) ─
 
 TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryFormat) {
+    // Responses (Task 2.4) is wired to real logic now, but this body has
+    // neither "input" nor "instructions", so it is genuinely Unsupported
+    // for that format too -- see test_guard_extract_resp.cpp for the real
+    // per-format extraction corpus.
     const std::string body = R"({"messages":[{"role":"user","content":"hi"}]})";
     for (auto format : {Guard::ApiFormat::ChatCompletions, Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
         const auto result = Guard::Extract::extract_request(body, format);
@@ -826,9 +830,16 @@ TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryFormat) {
     }
 }
 
-TEST(GuardExtract, ExtractResponseStubReturnsUnsupportedForEveryFormat) {
+TEST(GuardExtract, ExtractResponseStubReturnsUnsupportedForRemainingFormats) {
+    // Guard::ApiFormat::Responses is wired to Task 2.4's real
+    // ExtractOutputFields port, which -- unlike ExtractRequestContent --
+    // never reports Unsupported (a missing/non-array "output" just yields
+    // no fields), so it is intentionally excluded from this stub-only
+    // check; see test_guard_extract_resp.cpp for its real coverage,
+    // including `ExtractOutputFieldsNoOutput` pinning that exact "no
+    // fields, not Unsupported" behavior for this same body shape.
     const std::string body = R"({"choices":[{"message":{"content":"hi"}}]})";
-    for (auto format : {Guard::ApiFormat::ChatCompletions, Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
+    for (auto format : {Guard::ApiFormat::ChatCompletions, Guard::ApiFormat::Messages}) {
         const auto result = Guard::Extract::extract_response(body, format);
         EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
     }
