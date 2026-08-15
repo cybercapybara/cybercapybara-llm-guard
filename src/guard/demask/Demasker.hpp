@@ -169,6 +169,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -184,7 +185,6 @@
 
 #include "guard/MaskingState.hpp"
 #include "guard/Registry.hpp"
-#include "guard/Unicode.hpp"
 #include "guard/json/Json.hpp"
 
 namespace Guard::Demask {
@@ -424,6 +424,19 @@ inline std::vector<PlaceholderMatch> resolve_conflicts(std::vector<PlaceholderMa
     return resolved;
 }
 
+/// Go's `strings.TrimSpace(cr.Masking.Placeholder) == ""` blank-placeholder
+/// guard (scan.go:122), decided WITHOUT the `std::string` that
+/// `Guard::detail::ascii_trim` would allocate -- this runs once per triggered
+/// rule per streamed chunk. Same whitespace set (`std::isspace`), so the two
+/// always agree.
+inline bool is_blank_placeholder(std::string_view s) {
+    for (char c : s) {
+        if (std::isspace(static_cast<unsigned char>(c)) == 0)
+            return false;
+    }
+    return true;
+}
+
 /// Parses the placeholder-index capture. Ports `strconv.Atoi` + Go's
 /// `index <= 0` rejection; the capture is `[0-9]{1,9}` so the value always
 /// fits an `int` and leading zeros are accepted (`001` -> 1), which is what
@@ -459,7 +472,7 @@ inline bool parse_placeholder_index(std::string_view digits, int& out) {
  *       still terminates instead of spinning.
  */
 inline void scan_rule(std::string_view text, const CompiledRule& cr, std::vector<PlaceholderMatch>& out) {
-    if (!cr.placeholder_re || Guard::ascii_trim(cr.rule.masking.placeholder).empty())
+    if (!cr.placeholder_re || is_blank_placeholder(cr.rule.masking.placeholder))
         return;
 
     const RE2& re = *cr.placeholder_re;
