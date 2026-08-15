@@ -322,6 +322,88 @@ TEST(GuardJson, StringLeavesInMatchesUnscopedWalkWithOffsetReadd) {
     EXPECT_EQ(span_text(doc, scoped[2].span), "\"three\"");
 }
 
+// ── array_elements: single-pass array walk (Task 2.2 round 2) ───────────
+//
+// Added after review measured `find_value_in`-probing-by-index still O(n^2)
+// in element count: each probe re-scans the array from its own opening
+// bracket. `array_elements` walks the array exactly once instead.
+
+TEST(GuardJson, ArrayElementsFlatArrayCountAndSpansCorrect) {
+    const std::string doc = R"([10,"two",true,null,3.5])";
+    const auto array_span = Guard::Json::find_value(doc, {});
+    ASSERT_TRUE(array_span.has_value());
+
+    const auto elements = Guard::Json::array_elements(doc, *array_span);
+    ASSERT_EQ(elements.size(), 5u);
+    EXPECT_EQ(span_text(doc, elements[0]), "10");
+    EXPECT_FALSE(elements[0].is_string);
+    EXPECT_EQ(span_text(doc, elements[1]), "\"two\"");
+    EXPECT_TRUE(elements[1].is_string);
+    EXPECT_EQ(span_text(doc, elements[2]), "true");
+    EXPECT_EQ(span_text(doc, elements[3]), "null");
+    EXPECT_EQ(span_text(doc, elements[4]), "3.5");
+}
+
+TEST(GuardJson, ArrayElementsNestedArraysAndObjectsSpanTheWholeElementNotItsContents) {
+    // Each returned span must cover the WHOLE nested element (so a
+    // subsequent find_value_in against it can look inside), not just its
+    // opening token or its own first child.
+    const std::string doc = R"([{"a":1,"b":[2,3]},["x","y"],42])";
+    const auto array_span = Guard::Json::find_value(doc, {});
+    ASSERT_TRUE(array_span.has_value());
+
+    const auto elements = Guard::Json::array_elements(doc, *array_span);
+    ASSERT_EQ(elements.size(), 3u);
+    EXPECT_EQ(span_text(doc, elements[0]), R"({"a":1,"b":[2,3]})");
+    EXPECT_EQ(span_text(doc, elements[1]), R"(["x","y"])");
+    EXPECT_EQ(span_text(doc, elements[2]), "42");
+
+    // And each element's span must actually be usable with find_value_in.
+    const auto b1 = Guard::Json::find_value_in(doc, elements[0], {key("b"), idx(1)});
+    ASSERT_TRUE(b1.has_value());
+    EXPECT_EQ(span_text(doc, *b1), "3");
+}
+
+TEST(GuardJson, ArrayElementsMatchesRepeatedFindValueInProbing) {
+    // Cross-check against the (slower, O(n^2)) probing approach this
+    // function replaces -- must produce byte-identical spans.
+    const std::string doc = R"({"messages":[{"content":"a"},{"content":"b"},{"content":"c"}]})";
+    const auto messages_span = Guard::Json::find_value(doc, {key("messages")});
+    ASSERT_TRUE(messages_span.has_value());
+
+    const auto elements = Guard::Json::array_elements(doc, *messages_span);
+    ASSERT_EQ(elements.size(), 3u);
+    for (std::size_t i = 0; i < elements.size(); ++i) {
+        const auto probed = Guard::Json::find_value_in(doc, *messages_span, {idx(i)});
+        ASSERT_TRUE(probed.has_value());
+        EXPECT_EQ(elements[i].start, probed->start);
+        EXPECT_EQ(elements[i].end, probed->end);
+    }
+}
+
+TEST(GuardJson, ArrayElementsEmptyArrayReturnsEmpty) {
+    const std::string doc = R"([])";
+    const auto array_span = Guard::Json::find_value(doc, {});
+    ASSERT_TRUE(array_span.has_value());
+    EXPECT_TRUE(Guard::Json::array_elements(doc, *array_span).empty());
+}
+
+TEST(GuardJson, ArrayElementsNonArraySpanReturnsEmpty) {
+    const std::string doc = R"({"obj":{"a":1},"str":"x","num":5,"bool":true,"null":null})";
+    for (const char* key_name : {"obj", "str", "num", "bool", "null"}) {
+        SCOPED_TRACE(key_name);
+        const auto span = Guard::Json::find_value(doc, {key(key_name)});
+        ASSERT_TRUE(span.has_value());
+        EXPECT_TRUE(Guard::Json::array_elements(doc, *span).empty());
+    }
+}
+
+TEST(GuardJson, ArrayElementsOutOfBoundsSpanReturnsEmpty) {
+    const std::string doc = R"([1,2,3])";
+    EXPECT_TRUE(Guard::Json::array_elements(doc, Guard::Json::ValueSpan{0, doc.size() + 1, false}).empty());
+    EXPECT_TRUE(Guard::Json::array_elements(doc, Guard::Json::ValueSpan{5, 1, false}).empty());
+}
+
 // ── decode_string / encode_string ───────────────────────────────────────
 
 TEST(GuardJson, DecodeStringBasicEscapes) {

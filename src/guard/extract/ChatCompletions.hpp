@@ -71,26 +71,34 @@
  *          them in the Go reference confirms this -- so they are patched as
  *          strings like any other text field, not as raw objects.
  *
- *          **Every lookup is SCOPED, never a full document-root walk, once
- *          the containing array is resolved.** An earlier revision called
+ *          **The whole extraction pass is O(document size) -- verified
+ *          linear, not just "scoped."** An earlier revision called
  *          `Guard::Json::find_value` with the FULL path from the document
- *          root for every single field of every message/choice -- correct,
- *          but O(document size) PER LOOKUP, so O(element count * document
- *          size) overall: a confirmed quadratic DoS regression on the proxy
- *          hot path (measured 143ms @ 200 messages, 12.4s @ 2MB body,
- *          against Go's ~linear reference behavior). Fixed by resolving
- *          `messages`/`choices` ONCE via `find_value`, then resolving every
- *          array index and nested field via `Guard::Json::find_value_in`,
- *          scoped to the immediately-enclosing element's own span (see
- *          that function's doc comment in `Json.hpp` for the full offset-
- *          readd contract) -- so each lookup costs O(that element's size),
- *          and a whole array walk costs O(document size) once, not once per
- *          element. This changes nothing observable: every `ContentField`'s
- *          `path`/`span`/`text` is byte-for-byte identical to before: an
- *          array is still walked by probing index 0, 1, 2, ... until a
- *          lookup reports the index out of range (`std::nullopt`), exactly
- *          mirroring gjson's `Array()` semantics for well-formed JSON
- *          arrays -- only WHERE each lookup starts searching from changed.
+ *          root for every single field of every message/choice: O(document
+ *          size) PER LOOKUP, O(element count * document size) overall (a
+ *          confirmed quadratic DoS regression: 143ms @ 200 messages, 12.4s
+ *          @ 2MB body). A second revision scoped every lookup via
+ *          `Guard::Json::find_value_in` to its immediately-enclosing
+ *          element's span -- this fixed the PER-FIELD cost (each field
+ *          lookup now O(that element's size)) but NOT the per-element
+ *          walk itself: probing `find_value_in(doc, array_span, {idx(i)})`
+ *          for `i = 0, 1, 2, ...` still re-scans the array from its own
+ *          opening bracket on every call, so resolving N siblings still
+ *          cost O(N * array size) -- still quadratic in element count
+ *          (confirmed by measurement: flat ~27x per doubling of message
+ *          count, 1.77s @ 8000 messages). The fix actually used below is
+ *          `Guard::Json::array_elements`: EVERY array this file walks
+ *          (`messages`, `choices`, `content` parts, `tool_calls`) is
+ *          resolved via ONE call to `array_elements` -- a single forward
+ *          pass returning every element's span, O(array size) total (see
+ *          its doc comment in `Json.hpp`) -- then each element's OWN
+ *          nested fields are resolved via `find_value_in` scoped to that
+ *          element's span. Every element is now visited, and every field
+ *          within it looked up, exactly once: the whole pass costs
+ *          O(document size), not O(element count * anything). This changes
+ *          nothing observable -- every `ContentField`'s `path`/`span`/
+ *          `text` is byte-for-byte identical to both earlier revisions'
+ *          output; only the walk's own cost changed.
  *
  *          **Deliberate divergence from gjson's non-array `Array()` self-
  *          wrap.** gjson's `Result.Array()`, called on a present-but-non-
@@ -170,7 +178,10 @@ inline void push_if_nonempty_string(std::string_view body,
 // `collectMessageContentFields`. `msg_path` is the ABSOLUTE path to
 // `messages[i]` (for building output `ContentField::path`s); `msg_span` is
 // its span in `body` (for SCOPED lookups via `find_value_in` -- see the
-// file-level doc comment's linear-time note).
+// file-level doc comment's linear-time note). The `content` array itself,
+// if present, is walked via ONE `array_elements` call, not per-index
+// `find_value_in` probing -- see the file-level doc comment for why that
+// distinction matters for overall complexity.
 inline void collect_message_content(std::string_view body,
                                     std::vector<ContentField>& out,
                                     const std::vector<PathSeg>& msg_path,
@@ -190,15 +201,14 @@ inline void collect_message_content(std::string_view body,
     if (!is_array_span(body, *content_span))
         return;  // object/number/bool/null content: not scannable, matches Go's `default: return nil`
 
-    for (std::size_t j = 0;; ++j) {
-        const auto part_span = Guard::Json::find_value_in(body, *content_span, {idx_seg(j)});
-        if (!part_span)
-            break;  // index out of range: end of the array
+    const auto parts = Guard::Json::array_elements(body, *content_span);
+    for (std::size_t j = 0; j < parts.size(); ++j) {
+        const ValueSpan& part_span = parts[j];
 
         std::vector<PathSeg> part_path = content_path;
         part_path.push_back(idx_seg(j));
 
-        const auto type_span = Guard::Json::find_value_in(body, *part_span, {key_seg("type")});
+        const auto type_span = Guard::Json::find_value_in(body, part_span, {key_seg("type")});
         if (!type_span || !type_span->is_string)
             continue;  // missing/non-string `type`: Go's `part.Get("type").String()` is never "text" either
         const std::string type_val =
@@ -208,7 +218,7 @@ inline void collect_message_content(std::string_view body,
 
         std::vector<PathSeg> text_path = part_path;
         text_path.push_back(key_seg("text"));
-        push_if_nonempty_string(body, out, text_path, Guard::Json::find_value_in(body, *part_span, {key_seg("text")}));
+        push_if_nonempty_string(body, out, text_path, Guard::Json::find_value_in(body, part_span, {key_seg("text")}));
     }
 }
 
@@ -232,7 +242,10 @@ inline void collect_function_call(std::string_view body,
 // (`container` = one `choices[i].message`), since both nest `tool_calls`
 // directly under the same-shaped container. Ports
 // `collectToolCallArgumentFields`. See `collect_message_content`'s doc
-// comment for `container_path`/`container_span`'s roles.
+// comment for `container_path`/`container_span`'s roles, and for why
+// `tool_calls` is walked via ONE `array_elements` call rather than
+// per-index probing (small in practice, but kept consistent with
+// `messages`/`choices`/`content` for the same complexity reason).
 inline void collect_tool_calls(std::string_view body,
                                std::vector<ContentField>& out,
                                const std::vector<PathSeg>& container_path,
@@ -244,18 +257,15 @@ inline void collect_tool_calls(std::string_view body,
     std::vector<PathSeg> tc_path = container_path;
     tc_path.push_back(key_seg("tool_calls"));
 
-    for (std::size_t j = 0;; ++j) {
-        const auto elem_span = Guard::Json::find_value_in(body, *tc_span, {idx_seg(j)});
-        if (!elem_span)
-            break;  // index out of range: end of the array
-
+    const auto elements = Guard::Json::array_elements(body, *tc_span);
+    for (std::size_t j = 0; j < elements.size(); ++j) {
         std::vector<PathSeg> args_path = tc_path;
         args_path.push_back(idx_seg(j));
         args_path.push_back(key_seg("function"));
         args_path.push_back(key_seg("arguments"));
 
         const auto args_span =
-            Guard::Json::find_value_in(body, *elem_span, {key_seg("function"), key_seg("arguments")});
+            Guard::Json::find_value_in(body, elements[j], {key_seg("function"), key_seg("arguments")});
         push_if_nonempty_string(body, out, args_path, args_span);
     }
 }
@@ -279,19 +289,17 @@ inline ExtractResult extract_request(std::string_view body) {
         return Unsupported{};  // absent/not-array `messages`: mirrors ErrUnsupportedBodySchema
 
     std::vector<ContentField> fields;
-    for (std::size_t i = 0;; ++i) {
-        // Scoped to `*messages_span`, not a full-document `find_value` --
-        // see the file-level doc comment's linear-time note.
-        const auto msg_span = Guard::Json::find_value_in(body, *messages_span, {idx_seg(i)});
-        if (!msg_span)
-            break;  // index out of range: end of the array
-
+    // ONE forward pass over `messages` (see the file-level doc comment) --
+    // NOT per-index `find_value_in` probing, which would still re-scan the
+    // array from its own start on every index.
+    const auto elements = Guard::Json::array_elements(body, *messages_span);
+    for (std::size_t i = 0; i < elements.size(); ++i) {
         std::vector<Guard::Json::PathSeg> msg_path = messages_path;
         msg_path.push_back(idx_seg(i));
 
-        detail::collect_message_content(body, fields, msg_path, *msg_span);
-        detail::collect_function_call(body, fields, msg_path, *msg_span);
-        detail::collect_tool_calls(body, fields, msg_path, *msg_span);
+        detail::collect_message_content(body, fields, msg_path, elements[i]);
+        detail::collect_function_call(body, fields, msg_path, elements[i]);
+        detail::collect_tool_calls(body, fields, msg_path, elements[i]);
     }
 
     return fields;  // possibly empty -- `messages` present+array is enough to avoid Unsupported{}
@@ -302,7 +310,6 @@ inline ExtractResult extract_request(std::string_view body) {
 /// missing/non-array `choices`, or a choice missing `message`, simply
 /// contributes no fields.
 inline ExtractResult extract_response(std::string_view body) {
-    using detail::idx_seg;
     using detail::key_seg;
 
     std::vector<ContentField> fields;
@@ -312,17 +319,14 @@ inline ExtractResult extract_response(std::string_view body) {
     if (!choices_span || !detail::is_array_span(body, *choices_span))
         return fields;  // missing/non-array choices: empty, not an error
 
-    for (std::size_t i = 0;; ++i) {
-        // Scoped to `*choices_span` -- see the file-level doc comment's
-        // linear-time note.
-        const auto choice_span = Guard::Json::find_value_in(body, *choices_span, {idx_seg(i)});
-        if (!choice_span)
-            break;  // index out of range: end of the array
-
+    // ONE forward pass over `choices` -- see `extract_request`'s comment
+    // and the file-level doc comment.
+    const auto choices = Guard::Json::array_elements(body, *choices_span);
+    for (std::size_t i = 0; i < choices.size(); ++i) {
         std::vector<Guard::Json::PathSeg> choice_path = choices_path;
-        choice_path.push_back(idx_seg(i));
+        choice_path.push_back(detail::idx_seg(i));
 
-        const auto msg_span = Guard::Json::find_value_in(body, *choice_span, {key_seg("message")});
+        const auto msg_span = Guard::Json::find_value_in(body, choices[i], {key_seg("message")});
         if (!msg_span)
             continue;  // choice missing `message`: no fields for THIS choice, but keep walking later ones
 
