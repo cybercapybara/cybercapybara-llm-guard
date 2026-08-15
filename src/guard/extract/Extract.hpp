@@ -4,25 +4,24 @@
  *        (`ChatCompletions.hpp`, `Messages.hpp`, `Responses.hpp` -- Tasks
  *        2.2-2.4), plus `wants_stream`, which needs no per-format
  *        dispatch and is fully implemented here.
- * @details `extract_request`/`extract_response` are declared here as
- *          DISPATCH STUBS ONLY: both unconditionally return `Unsupported{}`
- *          for every `Guard::ApiFormat`. The real per-format bodies land in
- *          Tasks 2.2 (chat_completions), 2.3 (messages), 2.4 (responses),
- *          each in their own header/translation unit so the three tasks
- *          can proceed in parallel worktrees without colliding on this
- *          file (a controller ruling for Task 2.1, made to remove a
- *          three-writer collision otherwise created by all three extractor
- *          tasks needing to add cases to the same `switch`). Returning
- *          `Unsupported{}` here is not a behavior regression in the
- *          interim: `ExtractResult`'s `Unsupported` sentinel is exactly
- *          the fail-open-plus-counter signal callers already must handle
- *          for a genuinely unsupported body schema (spec §5), so a caller
- *          built against this stub sees the same "nothing to mask, but
- *          don't fail closed" behavior it would see for real unsupported
- *          input -- just for every input, until 2.2-2.4 replace this
- *          dispatch with real per-format logic (almost certainly via
- *          `ApiFormat`-keyed calls out to the three per-format headers,
- *          included here once they exist).
+ * @details `extract_request`/`extract_response` dispatch on `Guard::
+ *          ApiFormat` to the three per-format headers (`ChatCompletions.hpp`,
+ *          `Messages.hpp`, `Responses.hpp` -- Tasks 2.2-2.4), each landing in
+ *          its own header/translation unit so the three tasks can proceed in
+ *          parallel worktrees without colliding on this file (a controller
+ *          ruling for Task 2.1, made to remove a three-writer collision
+ *          otherwise created by all three extractor tasks needing to add
+ *          cases to the same `switch`). Task 2.2 (chat_completions) has
+ *          landed and is wired in below; `Messages`/`Responses` remain
+ *          DISPATCH STUBS returning `Unsupported{}` until Tasks 2.3/2.4 land.
+ *          Returning `Unsupported{}` for a not-yet-implemented format is not
+ *          a behavior regression in the interim: `ExtractResult`'s
+ *          `Unsupported` sentinel is exactly the fail-open-plus-counter
+ *          signal callers already must handle for a genuinely unsupported
+ *          body schema (spec §5), so a caller built against these stubs sees
+ *          the same "nothing to mask, but don't fail closed" behavior it
+ *          would see for real unsupported input -- just for every input of
+ *          that format, until 2.3/2.4 replace their stub with real logic.
  *
  *          `wants_stream` reads the Go reference's `internal/controller/
  *          gateway/gateway.go`: `gjson.GetBytes(body, "stream").Bool()`,
@@ -75,18 +74,53 @@ struct Unsupported {};
 
 using ExtractResult = std::variant<std::vector<ContentField>, Unsupported>;
 
-// Dispatch stubs -- see the file-level doc comment. Every format currently
-// reports Unsupported; Tasks 2.2-2.4 replace this body with a switch over
-// `format` that calls into their own per-format header.
+// Forward-declared (not `#include`d) to avoid a circular header dependency:
+// `ChatCompletions.hpp` (Task 2.2) itself includes THIS file for the types
+// above, so this file cannot also `#include "guard/extract/ChatCompletions.
+// hpp"` without the two fighting over which one's `#pragma once` guard wins
+// depending on which is included first in a given translation unit (it is
+// NOT always this file -- `tests/unit/test_guard_extract_cc.cpp` includes
+// `ChatCompletions.hpp` directly to test it in isolation). A plain (non-
+// `inline`) prototype is enough here: only the eventual DEFINITION in
+// `ChatCompletions.hpp` needs the `inline` specifier (so multiple TUs that
+// include that header don't violate the one-definition rule); a TU that
+// merely declares and calls the function, as this one does, does not. Any
+// translation unit that reaches the `ChatCompletions` case below just needs
+// this declaration to compile, and the definition to be present somewhere in
+// the final link -- here, provided by whichever `tests/unit/*.cpp` TU
+// includes `ChatCompletions.hpp`, since the root CMakeLists.txt links every
+// unit-test TU into one binary. `Messages`/`Responses` will each add their
+// own such forward-declared namespace here in Tasks 2.3/2.4.
+namespace ChatCompletions {
+ExtractResult extract_request(std::string_view body);
+ExtractResult extract_response(std::string_view body);
+}  // namespace ChatCompletions
+
+/// Dispatches to the per-format extractor. `ChatCompletions` is wired to
+/// `ChatCompletions::extract_request` (Task 2.2); `Messages`/`Responses`
+/// remain `Unsupported{}` stubs until Tasks 2.3/2.4 land -- see the
+/// file-level doc comment.
 inline ExtractResult extract_request(std::string_view body, Guard::ApiFormat format) {
-    (void)body;
-    (void)format;
+    switch (format) {
+        case Guard::ApiFormat::ChatCompletions:
+            return ChatCompletions::extract_request(body);
+        case Guard::ApiFormat::Messages:
+        case Guard::ApiFormat::Responses:
+            break;
+    }
     return Unsupported{};
 }
 
+/// Dispatches to the per-format extractor -- see `extract_request`'s doc
+/// comment.
 inline ExtractResult extract_response(std::string_view body, Guard::ApiFormat format) {
-    (void)body;
-    (void)format;
+    switch (format) {
+        case Guard::ApiFormat::ChatCompletions:
+            return ChatCompletions::extract_response(body);
+        case Guard::ApiFormat::Messages:
+        case Guard::ApiFormat::Responses:
+            break;
+    }
     return Unsupported{};
 }
 
