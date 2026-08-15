@@ -816,19 +816,24 @@ TEST(GuardExtract, WantsStreamLooseGjsonBoolCoercion) {
     EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":{}})"));
 }
 
-// ── Extract dispatch stubs (Tasks 2.2-2.4 land the real bodies) ─────────
+// ── Extract dispatch stubs (Tasks 2.3-2.4 land the remaining real bodies) ─
+//
+// Task 2.2 landed the real `ChatCompletions` body (`src/guard/extract/
+// ChatCompletions.hpp` + `tests/unit/test_guard_extract_cc.cpp`, which
+// covers its dispatch wiring in `GuardExtractChatCompletionsDispatch.*`);
+// these two tests narrow to just the formats still stubbed.
 
-TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryFormat) {
+TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryStubbedFormat) {
     const std::string body = R"({"messages":[{"role":"user","content":"hi"}]})";
-    for (auto format : {Guard::ApiFormat::ChatCompletions, Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
+    for (auto format : {Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
         const auto result = Guard::Extract::extract_request(body, format);
         EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
     }
 }
 
-TEST(GuardExtract, ExtractResponseStubReturnsUnsupportedForEveryFormat) {
+TEST(GuardExtract, ExtractResponseStubReturnsUnsupportedForEveryStubbedFormat) {
     const std::string body = R"({"choices":[{"message":{"content":"hi"}}]})";
-    for (auto format : {Guard::ApiFormat::ChatCompletions, Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
+    for (auto format : {Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
         const auto result = Guard::Extract::extract_response(body, format);
         EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
     }

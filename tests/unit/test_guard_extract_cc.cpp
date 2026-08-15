@@ -119,7 +119,16 @@ TEST(GuardExtractChatCompletionsRequest, ExtractsAllMessageRolesWithStringConten
     const char* expected_text[] = {
         "system secret", "user secret", "assistant secret", "tool secret", "function secret"};
     for (std::size_t i = 0; i < 5; ++i) {
-        EXPECT_EQ(path_str(got[i].path), "messages." + std::to_string(i) + ".content");
+        // Built with `+=`, not chained `+` (`"messages." + std::to_string(i) +
+        // ".content"`): the latter is a confirmed GCC 13 `-Warray-bounds=`
+        // false positive on chained SSO `std::string` concatenation at -O3
+        // (same class of issue as `Guard::Json`'s documented
+        // `-Wstringop-overflow` false positive), not anything about this
+        // expression's actual bounds.
+        std::string expected_path = "messages.";
+        expected_path += std::to_string(i);
+        expected_path += ".content";
+        EXPECT_EQ(path_str(got[i].path), expected_path);
         EXPECT_EQ(got[i].text, expected_text[i]);
         EXPECT_FALSE(got[i].is_raw_object);
     }
