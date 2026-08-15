@@ -4,25 +4,31 @@
  *        (`ChatCompletions.hpp`, `Messages.hpp`, `Responses.hpp` -- Tasks
  *        2.2-2.4), plus `wants_stream`, which needs no per-format
  *        dispatch and is fully implemented here.
- * @details `extract_request`/`extract_response` are declared here as
- *          DISPATCH STUBS ONLY: both unconditionally return `Unsupported{}`
- *          for every `Guard::ApiFormat`. The real per-format bodies land in
- *          Tasks 2.2 (chat_completions), 2.3 (messages), 2.4 (responses),
- *          each in their own header/translation unit so the three tasks
- *          can proceed in parallel worktrees without colliding on this
- *          file (a controller ruling for Task 2.1, made to remove a
- *          three-writer collision otherwise created by all three extractor
- *          tasks needing to add cases to the same `switch`). Returning
- *          `Unsupported{}` here is not a behavior regression in the
- *          interim: `ExtractResult`'s `Unsupported` sentinel is exactly
- *          the fail-open-plus-counter signal callers already must handle
- *          for a genuinely unsupported body schema (spec §5), so a caller
- *          built against this stub sees the same "nothing to mask, but
- *          don't fail closed" behavior it would see for real unsupported
- *          input -- just for every input, until 2.2-2.4 replace this
- *          dispatch with real per-format logic (almost certainly via
- *          `ApiFormat`-keyed calls out to the three per-format headers,
- *          included here once they exist).
+ * @details `extract_request`/`extract_response` dispatch on `Guard::
+ *          ApiFormat` to the three per-format headers (`ChatCompletions.hpp`,
+ *          `Messages.hpp`, `Responses.hpp` -- Tasks 2.2-2.4), each landing in
+ *          its own header/translation unit so the three tasks can proceed in
+ *          parallel worktrees without colliding on this file (a controller
+ *          ruling for Task 2.1, made to remove a three-writer collision
+ *          otherwise created by all three extractor tasks needing to add
+ *          cases to the same `switch`). Task 2.2 (chat_completions) has
+ *          landed and is wired in below via a REAL `#include` of
+ *          `ChatCompletions.hpp` (an earlier revision instead forward-
+ *          declared its functions to dodge a circular include -- that was
+ *          ill-formed: see `Types.hpp`'s file-level doc comment for why,
+ *          and why `ContentField`/`Unsupported`/`ExtractResult` now live
+ *          there instead of here). `Messages`/`Responses` remain DISPATCH
+ *          STUBS returning `Unsupported{}` until Tasks 2.3/2.4 land, at
+ *          which point they should each `#include` their own header the
+ *          same way `ChatCompletions.hpp` is included below. Returning
+ *          `Unsupported{}` for a not-yet-implemented format is not a
+ *          behavior regression in the interim: `ExtractResult`'s
+ *          `Unsupported` sentinel is exactly the fail-open-plus-counter
+ *          signal callers already must handle for a genuinely unsupported
+ *          body schema (spec §5), so a caller built against these stubs sees
+ *          the same "nothing to mask, but don't fail closed" behavior it
+ *          would see for real unsupported input -- just for every input of
+ *          that format, until 2.3/2.4 replace their stub with real logic.
  *
  *          `wants_stream` reads the Go reference's `internal/controller/
  *          gateway/gateway.go`: `gjson.GetBytes(body, "stream").Bool()`,
@@ -52,41 +58,39 @@
 #include <cstdlib>
 #include <string>
 #include <string_view>
-#include <variant>
-#include <vector>
 
 #include "guard/ApiFormat.hpp"
+#include "guard/extract/ChatCompletions.hpp"
+#include "guard/extract/Types.hpp"
 #include "guard/json/Json.hpp"
 
 namespace Guard::Extract {
 
-/// A mutable text field addressed in an ORIGINAL request/response body.
-struct ContentField {
-    std::vector<Guard::Json::PathSeg> path;  // patchable location (re-resolve via find_value, or splice_all directly)
-    Guard::Json::ValueSpan span;             // span in the ORIGINAL body bytes
-    std::string text;                        // decoded string value
-    bool is_raw_object{false};  // true for e.g. messages tool_use `.input` (patch the raw object, not a string)
-};
-
-/// Sentinel for "this body doesn't match the expected schema for its
-/// declared format" (spec §5): callers fail open (pass the body through
-/// unmodified) and bump a counter, rather than reject the request.
-struct Unsupported {};
-
-using ExtractResult = std::variant<std::vector<ContentField>, Unsupported>;
-
-// Dispatch stubs -- see the file-level doc comment. Every format currently
-// reports Unsupported; Tasks 2.2-2.4 replace this body with a switch over
-// `format` that calls into their own per-format header.
+/// Dispatches to the per-format extractor. `ChatCompletions` is wired to
+/// `ChatCompletions::extract_request` (Task 2.2); `Messages`/`Responses`
+/// remain `Unsupported{}` stubs until Tasks 2.3/2.4 land -- see the
+/// file-level doc comment.
 inline ExtractResult extract_request(std::string_view body, Guard::ApiFormat format) {
-    (void)body;
-    (void)format;
+    switch (format) {
+        case Guard::ApiFormat::ChatCompletions:
+            return ChatCompletions::extract_request(body);
+        case Guard::ApiFormat::Messages:
+        case Guard::ApiFormat::Responses:
+            break;
+    }
     return Unsupported{};
 }
 
+/// Dispatches to the per-format extractor -- see `extract_request`'s doc
+/// comment.
 inline ExtractResult extract_response(std::string_view body, Guard::ApiFormat format) {
-    (void)body;
-    (void)format;
+    switch (format) {
+        case Guard::ApiFormat::ChatCompletions:
+            return ChatCompletions::extract_response(body);
+        case Guard::ApiFormat::Messages:
+        case Guard::ApiFormat::Responses:
+            break;
+    }
     return Unsupported{};
 }
 
