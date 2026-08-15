@@ -71,14 +71,45 @@
  *          them in the Go reference confirms this -- so they are patched as
  *          strings like any other text field, not as raw objects.
  *
- *          **Paths only ever address the fields this file itself extracts.**
- *          `find_value` is called with the FULL path from the document root
- *          on every lookup (there is no cheaper "resume from here" API in
- *          `Guard::Json`), so an array is walked by probing index 0, 1, 2,
- *          ... until `find_value` reports the index out of range
- *          (`std::nullopt`) -- exactly mirroring gjson's `Array()` semantics
- *          for well-formed JSON arrays, which is the only shape every
- *          Go-reference test body ever hands this code path.
+ *          **Every lookup is SCOPED, never a full document-root walk, once
+ *          the containing array is resolved.** An earlier revision called
+ *          `Guard::Json::find_value` with the FULL path from the document
+ *          root for every single field of every message/choice -- correct,
+ *          but O(document size) PER LOOKUP, so O(element count * document
+ *          size) overall: a confirmed quadratic DoS regression on the proxy
+ *          hot path (measured 143ms @ 200 messages, 12.4s @ 2MB body,
+ *          against Go's ~linear reference behavior). Fixed by resolving
+ *          `messages`/`choices` ONCE via `find_value`, then resolving every
+ *          array index and nested field via `Guard::Json::find_value_in`,
+ *          scoped to the immediately-enclosing element's own span (see
+ *          that function's doc comment in `Json.hpp` for the full offset-
+ *          readd contract) -- so each lookup costs O(that element's size),
+ *          and a whole array walk costs O(document size) once, not once per
+ *          element. This changes nothing observable: every `ContentField`'s
+ *          `path`/`span`/`text` is byte-for-byte identical to before: an
+ *          array is still walked by probing index 0, 1, 2, ... until a
+ *          lookup reports the index out of range (`std::nullopt`), exactly
+ *          mirroring gjson's `Array()` semantics for well-formed JSON
+ *          arrays -- only WHERE each lookup starts searching from changed.
+ *
+ *          **Deliberate divergence from gjson's non-array `Array()` self-
+ *          wrap.** gjson's `Result.Array()`, called on a present-but-non-
+ *          array value (an object, string, number, bool), does not report
+ *          zero elements -- it self-wraps the receiver as a one-element
+ *          array containing itself (e.g. `{"choices":{"message":{"content":
+ *          "hi"}}}`'s `choices` is an object, but `.Array()` on it yields
+ *          `[<that object>]`, so `choice.Get("message.content")` in Go
+ *          could spuriously resolve through it). `is_array_span` below
+ *          instead treats ANY non-array `messages`/`choices`/`tool_calls`
+ *          as zero elements, strictly -- see `ChoicesNotArraySkippedGracefully`
+ *          in the test file. This is the safer direction (never invents a
+ *          phantom element from a shape the wire format doesn't define) and
+ *          is behaviorally moot for Go too: a field gjson resolves through
+ *          that self-wrap quirk would carry a `choices.0.message.content`-
+ *          shaped `Path`, which does not describe any real location in a
+ *          body where `choices` is an object rather than an array, so
+ *          `sjson.SetBytes` could never actually patch it back in Go
+ *          either -- the quirk is real but practically un-actionable.
  */
 
 #pragma once
@@ -89,7 +120,7 @@
 #include <string_view>
 #include <vector>
 
-#include "guard/extract/Extract.hpp"
+#include "guard/extract/Types.hpp"
 #include "guard/json/Json.hpp"
 
 namespace Guard::Extract::ChatCompletions {
@@ -107,10 +138,12 @@ inline PathSeg idx_seg(std::size_t index) {
     return PathSeg{"", index, true};
 }
 
-// True iff `span` describes a JSON array value: `find_value` already tells
-// us it isn't a string (`is_string`), so the only thing left to check is
-// whether its first byte opens an array rather than an object/number/
-// true/false/null.
+// True iff `span` describes a JSON array value: `find_value`/`find_value_in`
+// already tell us it isn't a string (`is_string`), so the only thing left
+// to check is whether its first byte opens an array rather than an object/
+// number/true/false/null. See the file-level doc comment for why a non-
+// array value is treated as zero elements rather than gjson's one-element
+// self-wrap.
 inline bool is_array_span(std::string_view body, const ValueSpan& span) {
     return !span.is_string && span.start < span.end && body[span.start] == '[';
 }
@@ -134,15 +167,20 @@ inline void push_if_nonempty_string(std::string_view body,
 
 // `messages[i].content`: a string field, OR an array of parts each
 // contributing `content[j].text` when `part.type == "text"`. Ports
-// `collectMessageContentFields`.
+// `collectMessageContentFields`. `msg_path` is the ABSOLUTE path to
+// `messages[i]` (for building output `ContentField::path`s); `msg_span` is
+// its span in `body` (for SCOPED lookups via `find_value_in` -- see the
+// file-level doc comment's linear-time note).
 inline void collect_message_content(std::string_view body,
                                     std::vector<ContentField>& out,
-                                    const std::vector<PathSeg>& msg_path) {
-    std::vector<PathSeg> content_path = msg_path;
-    content_path.push_back(key_seg("content"));
-    const auto content_span = Guard::Json::find_value(body, content_path);
+                                    const std::vector<PathSeg>& msg_path,
+                                    const ValueSpan& msg_span) {
+    const auto content_span = Guard::Json::find_value_in(body, msg_span, {key_seg("content")});
     if (!content_span)
         return;
+
+    std::vector<PathSeg> content_path = msg_path;
+    content_path.push_back(key_seg("content"));
 
     if (content_span->is_string) {
         push_if_nonempty_string(body, out, content_path, content_span);
@@ -153,15 +191,14 @@ inline void collect_message_content(std::string_view body,
         return;  // object/number/bool/null content: not scannable, matches Go's `default: return nil`
 
     for (std::size_t j = 0;; ++j) {
-        std::vector<PathSeg> part_path = content_path;
-        part_path.push_back(idx_seg(j));
-        const auto part_span = Guard::Json::find_value(body, part_path);
+        const auto part_span = Guard::Json::find_value_in(body, *content_span, {idx_seg(j)});
         if (!part_span)
             break;  // index out of range: end of the array
 
-        std::vector<PathSeg> type_path = part_path;
-        type_path.push_back(key_seg("type"));
-        const auto type_span = Guard::Json::find_value(body, type_path);
+        std::vector<PathSeg> part_path = content_path;
+        part_path.push_back(idx_seg(j));
+
+        const auto type_span = Guard::Json::find_value_in(body, *part_span, {key_seg("type")});
         if (!type_span || !type_span->is_string)
             continue;  // missing/non-string `type`: Go's `part.Get("type").String()` is never "text" either
         const std::string type_val =
@@ -171,42 +208,55 @@ inline void collect_message_content(std::string_view body,
 
         std::vector<PathSeg> text_path = part_path;
         text_path.push_back(key_seg("text"));
-        push_if_nonempty_string(body, out, text_path, Guard::Json::find_value(body, text_path));
+        push_if_nonempty_string(body, out, text_path, Guard::Json::find_value_in(body, *part_span, {key_seg("text")}));
     }
 }
 
 // `messages[i].function_call.arguments`. Ports `collectFunctionCallFields`.
+// See `collect_message_content`'s doc comment for `container_path`/
+// `container_span`'s roles.
 inline void collect_function_call(std::string_view body,
                                   std::vector<ContentField>& out,
-                                  const std::vector<PathSeg>& msg_path) {
-    std::vector<PathSeg> path = msg_path;
+                                  const std::vector<PathSeg>& container_path,
+                                  const ValueSpan& container_span) {
+    const auto args_span =
+        Guard::Json::find_value_in(body, container_span, {key_seg("function_call"), key_seg("arguments")});
+    std::vector<PathSeg> path = container_path;
     path.push_back(key_seg("function_call"));
     path.push_back(key_seg("arguments"));
-    push_if_nonempty_string(body, out, path, Guard::Json::find_value(body, path));
+    push_if_nonempty_string(body, out, path, args_span);
 }
 
-// `messages[i].tool_calls[j].function.arguments`. Ports
-// `collectToolCallArgumentFields`.
+// `container[].tool_calls[j].function.arguments` -- shared by both the
+// request side (`container` = one `messages[i]`) and the response side
+// (`container` = one `choices[i].message`), since both nest `tool_calls`
+// directly under the same-shaped container. Ports
+// `collectToolCallArgumentFields`. See `collect_message_content`'s doc
+// comment for `container_path`/`container_span`'s roles.
 inline void collect_tool_calls(std::string_view body,
                                std::vector<ContentField>& out,
-                               const std::vector<PathSeg>& msg_path) {
-    std::vector<PathSeg> tc_path = msg_path;
-    tc_path.push_back(key_seg("tool_calls"));
-    const auto tc_span = Guard::Json::find_value(body, tc_path);
+                               const std::vector<PathSeg>& container_path,
+                               const ValueSpan& container_span) {
+    const auto tc_span = Guard::Json::find_value_in(body, container_span, {key_seg("tool_calls")});
     if (!tc_span || !is_array_span(body, *tc_span))
         return;  // missing/non-array tool_calls: Go's `!Exists() || !IsArray()` guard
 
+    std::vector<PathSeg> tc_path = container_path;
+    tc_path.push_back(key_seg("tool_calls"));
+
     for (std::size_t j = 0;; ++j) {
-        std::vector<PathSeg> elem_path = tc_path;
-        elem_path.push_back(idx_seg(j));
-        const auto elem_span = Guard::Json::find_value(body, elem_path);
+        const auto elem_span = Guard::Json::find_value_in(body, *tc_span, {idx_seg(j)});
         if (!elem_span)
             break;  // index out of range: end of the array
 
-        std::vector<PathSeg> args_path = elem_path;
+        std::vector<PathSeg> args_path = tc_path;
+        args_path.push_back(idx_seg(j));
         args_path.push_back(key_seg("function"));
         args_path.push_back(key_seg("arguments"));
-        push_if_nonempty_string(body, out, args_path, Guard::Json::find_value(body, args_path));
+
+        const auto args_span =
+            Guard::Json::find_value_in(body, *elem_span, {key_seg("function"), key_seg("arguments")});
+        push_if_nonempty_string(body, out, args_path, args_span);
     }
 }
 
@@ -230,15 +280,18 @@ inline ExtractResult extract_request(std::string_view body) {
 
     std::vector<ContentField> fields;
     for (std::size_t i = 0;; ++i) {
-        std::vector<Guard::Json::PathSeg> msg_path = messages_path;
-        msg_path.push_back(idx_seg(i));
-        const auto msg_span = Guard::Json::find_value(body, msg_path);
+        // Scoped to `*messages_span`, not a full-document `find_value` --
+        // see the file-level doc comment's linear-time note.
+        const auto msg_span = Guard::Json::find_value_in(body, *messages_span, {idx_seg(i)});
         if (!msg_span)
             break;  // index out of range: end of the array
 
-        detail::collect_message_content(body, fields, msg_path);
-        detail::collect_function_call(body, fields, msg_path);
-        detail::collect_tool_calls(body, fields, msg_path);
+        std::vector<Guard::Json::PathSeg> msg_path = messages_path;
+        msg_path.push_back(idx_seg(i));
+
+        detail::collect_message_content(body, fields, msg_path, *msg_span);
+        detail::collect_function_call(body, fields, msg_path, *msg_span);
+        detail::collect_tool_calls(body, fields, msg_path, *msg_span);
     }
 
     return fields;  // possibly empty -- `messages` present+array is enough to avoid Unsupported{}
@@ -260,27 +313,31 @@ inline ExtractResult extract_response(std::string_view body) {
         return fields;  // missing/non-array choices: empty, not an error
 
     for (std::size_t i = 0;; ++i) {
-        std::vector<Guard::Json::PathSeg> choice_path = choices_path;
-        choice_path.push_back(idx_seg(i));
-        const auto choice_span = Guard::Json::find_value(body, choice_path);
+        // Scoped to `*choices_span` -- see the file-level doc comment's
+        // linear-time note.
+        const auto choice_span = Guard::Json::find_value_in(body, *choices_span, {idx_seg(i)});
         if (!choice_span)
             break;  // index out of range: end of the array
+
+        std::vector<Guard::Json::PathSeg> choice_path = choices_path;
+        choice_path.push_back(idx_seg(i));
+
+        const auto msg_span = Guard::Json::find_value_in(body, *choice_span, {key_seg("message")});
+        if (!msg_span)
+            continue;  // choice missing `message`: no fields for THIS choice, but keep walking later ones
 
         std::vector<Guard::Json::PathSeg> msg_path = choice_path;
         msg_path.push_back(key_seg("message"));
 
         for (const std::string_view name : detail::kPlainResponseFields) {
+            const auto field_span = Guard::Json::find_value_in(body, *msg_span, {key_seg(std::string(name))});
             std::vector<Guard::Json::PathSeg> field_path = msg_path;
             field_path.push_back(key_seg(std::string(name)));
-            detail::push_if_nonempty_string(body, fields, field_path, Guard::Json::find_value(body, field_path));
+            detail::push_if_nonempty_string(body, fields, field_path, field_span);
         }
 
-        std::vector<Guard::Json::PathSeg> fc_path = msg_path;
-        fc_path.push_back(key_seg("function_call"));
-        fc_path.push_back(key_seg("arguments"));
-        detail::push_if_nonempty_string(body, fields, fc_path, Guard::Json::find_value(body, fc_path));
-
-        detail::collect_tool_calls(body, fields, msg_path);
+        detail::collect_function_call(body, fields, msg_path, *msg_span);
+        detail::collect_tool_calls(body, fields, msg_path, *msg_span);
     }
 
     return fields;

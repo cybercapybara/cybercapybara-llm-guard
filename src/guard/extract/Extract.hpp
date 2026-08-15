@@ -12,10 +12,17 @@
  *          ruling for Task 2.1, made to remove a three-writer collision
  *          otherwise created by all three extractor tasks needing to add
  *          cases to the same `switch`). Task 2.2 (chat_completions) has
- *          landed and is wired in below; `Messages`/`Responses` remain
- *          DISPATCH STUBS returning `Unsupported{}` until Tasks 2.3/2.4 land.
- *          Returning `Unsupported{}` for a not-yet-implemented format is not
- *          a behavior regression in the interim: `ExtractResult`'s
+ *          landed and is wired in below via a REAL `#include` of
+ *          `ChatCompletions.hpp` (an earlier revision instead forward-
+ *          declared its functions to dodge a circular include -- that was
+ *          ill-formed: see `Types.hpp`'s file-level doc comment for why,
+ *          and why `ContentField`/`Unsupported`/`ExtractResult` now live
+ *          there instead of here). `Messages`/`Responses` remain DISPATCH
+ *          STUBS returning `Unsupported{}` until Tasks 2.3/2.4 land, at
+ *          which point they should each `#include` their own header the
+ *          same way `ChatCompletions.hpp` is included below. Returning
+ *          `Unsupported{}` for a not-yet-implemented format is not a
+ *          behavior regression in the interim: `ExtractResult`'s
  *          `Unsupported` sentinel is exactly the fail-open-plus-counter
  *          signal callers already must handle for a genuinely unsupported
  *          body schema (spec §5), so a caller built against these stubs sees
@@ -51,50 +58,13 @@
 #include <cstdlib>
 #include <string>
 #include <string_view>
-#include <variant>
-#include <vector>
 
 #include "guard/ApiFormat.hpp"
+#include "guard/extract/ChatCompletions.hpp"
+#include "guard/extract/Types.hpp"
 #include "guard/json/Json.hpp"
 
 namespace Guard::Extract {
-
-/// A mutable text field addressed in an ORIGINAL request/response body.
-struct ContentField {
-    std::vector<Guard::Json::PathSeg> path;  // patchable location (re-resolve via find_value, or splice_all directly)
-    Guard::Json::ValueSpan span;             // span in the ORIGINAL body bytes
-    std::string text;                        // decoded string value
-    bool is_raw_object{false};  // true for e.g. messages tool_use `.input` (patch the raw object, not a string)
-};
-
-/// Sentinel for "this body doesn't match the expected schema for its
-/// declared format" (spec §5): callers fail open (pass the body through
-/// unmodified) and bump a counter, rather than reject the request.
-struct Unsupported {};
-
-using ExtractResult = std::variant<std::vector<ContentField>, Unsupported>;
-
-// Forward-declared (not `#include`d) to avoid a circular header dependency:
-// `ChatCompletions.hpp` (Task 2.2) itself includes THIS file for the types
-// above, so this file cannot also `#include "guard/extract/ChatCompletions.
-// hpp"` without the two fighting over which one's `#pragma once` guard wins
-// depending on which is included first in a given translation unit (it is
-// NOT always this file -- `tests/unit/test_guard_extract_cc.cpp` includes
-// `ChatCompletions.hpp` directly to test it in isolation). A plain (non-
-// `inline`) prototype is enough here: only the eventual DEFINITION in
-// `ChatCompletions.hpp` needs the `inline` specifier (so multiple TUs that
-// include that header don't violate the one-definition rule); a TU that
-// merely declares and calls the function, as this one does, does not. Any
-// translation unit that reaches the `ChatCompletions` case below just needs
-// this declaration to compile, and the definition to be present somewhere in
-// the final link -- here, provided by whichever `tests/unit/*.cpp` TU
-// includes `ChatCompletions.hpp`, since the root CMakeLists.txt links every
-// unit-test TU into one binary. `Messages`/`Responses` will each add their
-// own such forward-declared namespace here in Tasks 2.3/2.4.
-namespace ChatCompletions {
-ExtractResult extract_request(std::string_view body);
-ExtractResult extract_response(std::string_view body);
-}  // namespace ChatCompletions
 
 /// Dispatches to the per-format extractor. `ChatCompletions` is wired to
 /// `ChatCompletions::extract_request` (Task 2.2); `Messages`/`Responses`

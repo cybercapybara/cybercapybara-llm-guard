@@ -32,12 +32,16 @@
  *     `AllFieldsInFixedOrderPerChoice` below are this port's own
  *     supplementary coverage, written directly against the brief/Go
  *     source rather than an existing Go test table.
- *   - The remaining tests (array/object-typed `messages`/`choices`,
- *     missing `message`, path/span round-tripping, dispatch wiring) are
- *     likewise supplementary: edge cases implied by the contract
- *     (`Guard::Json::find_value`'s documented semantics,
- *     `ContentField`'s path+span+text contract) but not spelled out by an
- *     existing Go test.
+ *   - The remaining tests (14 supplementary `GuardExtractChatCompletionsRequest.*`,
+ *     7 supplementary `GuardExtractChatCompletionsResponse.*`, plus 3
+ *     `GuardExtractChatCompletionsDispatch.*`): array/object-typed
+ *     `messages`/`choices`, missing `message`, path/span round-tripping,
+ *     dispatch wiring, the fixed-order pins, and probe-verified edge cases
+ *     (content part missing/non-string `type`, non-string `text`, a
+ *     scalar/null `messages` element, non-string `arguments`) -- likewise
+ *     supplementary: edge cases implied by the contract (`Guard::Json::
+ *     find_value`/`find_value_in`'s documented semantics, `ContentField`'s
+ *     path+span+text contract) but not spelled out by an existing Go test.
  *
  * Empty-string policy: every Go extraction site guards with
  * `Type == gjson.String && String() != ""`; a present JSON string that
@@ -323,13 +327,113 @@ TEST(GuardExtractChatCompletionsRequest, PathAndSpanRoundTripToOriginalBody) {
 
     // `path` must re-resolve (via find_value) to exactly `span`, and `span`
     // must decode to `text` -- the two ways a demasker consumer could use a
-    // ContentField must agree.
+    // ContentField must agree. Deliberately re-resolved with the UNSCOPED
+    // `find_value` (not `find_value_in`) here: `path` is meant to be usable
+    // by a downstream demasker consumer that only has `body` and the
+    // `ContentField`, not the intermediate container spans this extractor
+    // used internally to compute it.
     const auto refound = Guard::Json::find_value(body, got[0].path);
     ASSERT_TRUE(refound.has_value());
     EXPECT_EQ(refound->start, got[0].span.start);
     EXPECT_EQ(refound->end, got[0].span.end);
     EXPECT_EQ(Guard::Json::decode_string(body.substr(got[0].span.start, got[0].span.end - got[0].span.start)),
               got[0].text);
+}
+
+TEST(GuardExtractChatCompletionsRequest, AllFieldsInFixedOrderPerMessage) {
+    // Keys are deliberately ordered BACKWARDS from the fixed extraction
+    // sequence (tool_calls, function_call, content) to pin that the
+    // emission order -- content -> function_call.arguments -> tool_calls
+    // (ascending) -- comes from the fixed sequence of `collect_*` calls in
+    // `extract_request`, NOT from the document's own key order. Mirrors the
+    // response-side `AllFieldsInFixedOrderPerChoice`.
+    const std::string body = R"({
+        "messages":[{
+            "tool_calls":[{"function":{"arguments":"{\"tc\":1}"}}],
+            "function_call":{"arguments":"{\"fc\":1}"},
+            "content":"c"
+        }]
+    })";
+    const auto result = Guard::Extract::ChatCompletions::extract_request(body);
+    ASSERT_FALSE(is_unsupported(result));
+    const auto& got = fields_of(result);
+    ASSERT_EQ(got.size(), 3u);
+    EXPECT_EQ(path_str(got[0].path), "messages.0.content");
+    EXPECT_EQ(got[0].text, "c");
+    EXPECT_EQ(path_str(got[1].path), "messages.0.function_call.arguments");
+    EXPECT_EQ(got[1].text, R"({"fc":1})");
+    EXPECT_EQ(path_str(got[2].path), "messages.0.tool_calls.0.function.arguments");
+    EXPECT_EQ(got[2].text, R"({"tc":1})");
+}
+
+// ── extract_request: probe-verified edge cases ──────────────────────────
+
+TEST(GuardExtractChatCompletionsRequest, ContentPartMissingTypeSkippedButWalkContinues) {
+    const std::string body = R"({
+        "messages":[{"role":"user","content":[{"text":"no type here"},{"type":"text","text":"kept"}]}]
+    })";
+    const auto result = Guard::Extract::ChatCompletions::extract_request(body);
+    ASSERT_FALSE(is_unsupported(result));
+    const auto& got = fields_of(result);
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(path_str(got[0].path), "messages.0.content.1.text");
+    EXPECT_EQ(got[0].text, "kept");
+}
+
+TEST(GuardExtractChatCompletionsRequest, ContentPartNonStringTypeSkippedButWalkContinues) {
+    const std::string body = R"({
+        "messages":[{"role":"user","content":[{"type":5,"text":"skip me"},{"type":"text","text":"kept"}]}]
+    })";
+    const auto result = Guard::Extract::ChatCompletions::extract_request(body);
+    ASSERT_FALSE(is_unsupported(result));
+    const auto& got = fields_of(result);
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(path_str(got[0].path), "messages.0.content.1.text");
+    EXPECT_EQ(got[0].text, "kept");
+}
+
+TEST(GuardExtractChatCompletionsRequest, ContentPartNonStringTextSkippedButWalkContinues) {
+    const std::string body = R"({
+        "messages":[{"role":"user","content":[{"type":"text","text":5},{"type":"text","text":"kept"}]}]
+    })";
+    const auto result = Guard::Extract::ChatCompletions::extract_request(body);
+    ASSERT_FALSE(is_unsupported(result));
+    const auto& got = fields_of(result);
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(path_str(got[0].path), "messages.0.content.1.text");
+    EXPECT_EQ(got[0].text, "kept");
+}
+
+TEST(GuardExtractChatCompletionsRequest, MessagesElementScalarNullSkippedButWalkContinues) {
+    const std::string body = R"({"messages":[null, {"role":"user","content":"hi"}]})";
+    const auto result = Guard::Extract::ChatCompletions::extract_request(body);
+    ASSERT_FALSE(is_unsupported(result));
+    const auto& got = fields_of(result);
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(path_str(got[0].path), "messages.1.content");
+    EXPECT_EQ(got[0].text, "hi");
+}
+
+TEST(GuardExtractChatCompletionsRequest, NonStringFunctionCallArgumentsSkipped) {
+    const std::string body = R"({"messages":[{"role":"assistant","function_call":{"arguments":123}}]})";
+    const auto result = Guard::Extract::ChatCompletions::extract_request(body);
+    ASSERT_FALSE(is_unsupported(result));
+    EXPECT_TRUE(fields_of(result).empty());
+}
+
+TEST(GuardExtractChatCompletionsRequest, NonStringToolCallArgumentsSkippedButWalkContinues) {
+    const std::string body = R"({
+        "messages":[{
+            "role":"assistant",
+            "tool_calls":[{"function":{"arguments":123}}, {"function":{"arguments":"{\"x\":1}"}}]
+        }]
+    })";
+    const auto result = Guard::Extract::ChatCompletions::extract_request(body);
+    ASSERT_FALSE(is_unsupported(result));
+    const auto& got = fields_of(result);
+    ASSERT_EQ(got.size(), 1u);
+    EXPECT_EQ(path_str(got[0].path), "messages.0.tool_calls.1.function.arguments");
+    EXPECT_EQ(got[0].text, R"({"x":1})");
 }
 
 // ── extract_response ────────────────────────────────────────────────────
@@ -517,6 +621,13 @@ TEST(GuardExtractChatCompletionsResponse, ChoiceMissingMessageSkippedGracefully)
 }
 
 TEST(GuardExtractChatCompletionsResponse, ChoicesNotArraySkippedGracefully) {
+    // Deliberate divergence from gjson: `Result.Array()` on a non-array
+    // value self-wraps it as a one-element array instead of yielding zero
+    // elements (see `ChatCompletions.hpp`'s file-level doc comment) --
+    // this port always treats non-array `choices` as zero elements, the
+    // safer direction, and one that's practically moot for Go's behavior
+    // too (a field resolved through that quirk can't be sjson-patched back
+    // into a body where `choices` isn't structurally an array).
     for (const std::string_view body :
          {R"({"choices": {}})", R"({"choices": "nope"})", R"({"choices": null})", R"({"choices": 1})"}) {
         SCOPED_TRACE(body);

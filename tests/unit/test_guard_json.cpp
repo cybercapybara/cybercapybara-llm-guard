@@ -235,6 +235,93 @@ TEST(GuardJson, ValidAcceptsHugeNumber) {
     EXPECT_TRUE(Guard::Json::valid(doc));
 }
 
+// ── find_value_in / string_leaves_in: scoped lookup (Task 2.2) ──────────
+//
+// Added alongside the chat_completions extractor to keep a caller walking
+// many array/object siblings out of find_value's O(document size) per-
+// lookup cost: resolve the containing array once, then resolve each
+// sibling and its nested fields scoped to that sibling's own span. These
+// pin the offset-readd contract documented on both functions.
+
+TEST(GuardJson, FindValueInNestedContainerMatchesUnscopedLookup) {
+    const std::string doc =
+        R"({"messages":[{"role":"user","content":"first"},{"role":"assistant","content":"second"}]})";
+    const auto messages = Guard::Json::find_value(doc, {key("messages")});
+    ASSERT_TRUE(messages.has_value());
+
+    const auto elem1 = Guard::Json::find_value_in(doc, *messages, {idx(1)});
+    ASSERT_TRUE(elem1.has_value());
+    const auto scoped = Guard::Json::find_value_in(doc, *elem1, {key("content")});
+    const auto unscoped = Guard::Json::find_value(doc, {key("messages"), idx(1), key("content")});
+    ASSERT_TRUE(scoped.has_value());
+    ASSERT_TRUE(unscoped.has_value());
+    EXPECT_EQ(scoped->start, unscoped->start);
+    EXPECT_EQ(scoped->end, unscoped->end);
+    EXPECT_TRUE(scoped->is_string);
+    EXPECT_EQ(span_text(doc, *scoped), "\"second\"");
+}
+
+TEST(GuardJson, FindValueInOffsetCorrectnessAtNonZeroContainerStart) {
+    // The container span does NOT start at byte 0 of `doc`: pins that
+    // find_value_in re-adds `container.start` (not some other offset) onto
+    // the result.
+    const std::string doc = R"({"padding":"xxxxxxxxxx","obj":{"k":"v"}})";
+    const auto container = Guard::Json::find_value(doc, {key("obj")});
+    ASSERT_TRUE(container.has_value());
+    ASSERT_GT(container->start, 0u);  // sanity: the container really is offset into doc
+
+    const auto found = Guard::Json::find_value_in(doc, *container, {key("k")});
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(span_text(doc, *found), "\"v\"");
+    // The returned span must be a sub-range of the container's own span, in
+    // doc's coordinates -- not the substring's.
+    EXPECT_GE(found->start, container->start);
+    EXPECT_LE(found->end, container->end);
+}
+
+TEST(GuardJson, FindValueInEmptyRelativePathReturnsContainerItself) {
+    const std::string doc = R"({"a":{"b":1}})";
+    const auto container = Guard::Json::find_value(doc, {key("a")});
+    ASSERT_TRUE(container.has_value());
+    const auto found = Guard::Json::find_value_in(doc, *container, {});
+    ASSERT_TRUE(found.has_value());
+    EXPECT_EQ(found->start, container->start);
+    EXPECT_EQ(found->end, container->end);
+}
+
+TEST(GuardJson, FindValueInMissingKeyReturnsNullopt) {
+    const std::string doc = R"({"obj":{"k":"v"}})";
+    const auto container = Guard::Json::find_value(doc, {key("obj")});
+    ASSERT_TRUE(container.has_value());
+    EXPECT_FALSE(Guard::Json::find_value_in(doc, *container, {key("missing")}).has_value());
+}
+
+TEST(GuardJson, FindValueInOutOfBoundsContainerReturnsNullopt) {
+    const std::string doc = R"({"a":1})";
+    EXPECT_FALSE(
+        Guard::Json::find_value_in(doc, Guard::Json::ValueSpan{0, doc.size() + 1, false}, {key("a")}).has_value());
+    EXPECT_FALSE(Guard::Json::find_value_in(doc, Guard::Json::ValueSpan{5, 1, false}, {key("a")}).has_value());
+}
+
+TEST(GuardJson, StringLeavesInMatchesUnscopedWalkWithOffsetReadd) {
+    const std::string doc = R"({"padding":"xxxxxxxxxx","obj":{"a":"one","b":["two","three"]}})";
+    const auto container = Guard::Json::find_value(doc, {key("obj")});
+    ASSERT_TRUE(container.has_value());
+    ASSERT_GT(container->start, 0u);
+
+    const auto scoped = Guard::Json::string_leaves_in(doc, *container, {});
+    const auto unscoped = Guard::Json::string_leaves(doc, {key("obj")});
+    ASSERT_EQ(scoped.size(), unscoped.size());
+    for (std::size_t i = 0; i < scoped.size(); ++i) {
+        EXPECT_EQ(scoped[i].span.start, unscoped[i].span.start);
+        EXPECT_EQ(scoped[i].span.end, unscoped[i].span.end);
+    }
+    ASSERT_EQ(scoped.size(), 3u);
+    EXPECT_EQ(span_text(doc, scoped[0].span), "\"one\"");
+    EXPECT_EQ(span_text(doc, scoped[1].span), "\"two\"");
+    EXPECT_EQ(span_text(doc, scoped[2].span), "\"three\"");
+}
+
 // ── decode_string / encode_string ───────────────────────────────────────
 
 TEST(GuardJson, DecodeStringBasicEscapes) {

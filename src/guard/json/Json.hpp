@@ -98,6 +98,25 @@
  *          error (mismatched span/document pair, or two edits computed
  *          against the same document that collide), not a malformed-input
  *          case.
+ *
+ *          **`find_value_in`/`string_leaves_in` (added by Task 2.2) are
+ *          scoped variants of `find_value`/`string_leaves`**: instead of
+ *          walking from the document root, they resolve a path/walk a
+ *          subtree relative to a caller-supplied `ValueSpan` container
+ *          (itself previously returned by `find_value`/`find_value_in`
+ *          against the SAME `doc`), then re-add `container.start` onto the
+ *          result so it still lands in `doc`'s own byte offsets -- see
+ *          either function's own doc comment for the full offset-readd
+ *          contract. They exist so a caller walking many array/object
+ *          siblings (e.g. a `messages`/`choices` array) can resolve each
+ *          sibling's own fields in O(that sibling's size) rather than
+ *          O(document size): looking up every field from the document root
+ *          for every one of N siblings costs O(N * document size) overall,
+ *          which is quadratic for a proxy request whose body size and
+ *          message count both grow together -- confirmed as a real DoS
+ *          regression (143ms @ 200 messages, 12.4s @ 2MB) against the first
+ *          `find_value`-from-root-per-field extractor implementation
+ *          (`Guard::Extract::ChatCompletions`, Task 2.2).
  */
 
 #pragma once
@@ -314,28 +333,28 @@ GUARD_JSON_NOINLINE inline std::optional<std::size_t> open_or_scalar(std::string
     if (c == 'n')
         return match_literal(doc, p, "null") ? std::optional<std::size_t>(p + 4) : std::nullopt;
 
-        // GCC 13 at -O3 has a confirmed false positive on these two
-        // `push_back` calls: `-Werror=stringop-overflow` on
-        // `vector<WalkFrame>::_M_realloc_insert`/`construct_at`'s inlined
-        // placement-new, reported as "writing 1 byte into a region of size 0"
-        // at a nonsensical NEGATIVE offset into an object GCC itself computed
-        // as ~2^63 bytes -- internally self-contradictory, and independent of
-        // both initial capacity (tried `frames.reserve(...)` first: no effect)
-        // and caller-side inlining depth (tried extracting this whole function
-        // with `noinline`, above: reduced the backtrace to a single inlining
-        // chain but did not remove the warning). `WalkFrame` is a 2-byte
-        // `{char; enum class : uint8_t;}` aggregate; this specific
-        // size/layout combination through `vector::push_back` under `-O3`
-        // matches publicly reported GCC 12/13 `-Wstringop-overflow`
-        // false-positive reports (e.g. GCC PR 106252-class reallocation
-        // mis-analysis) rather than anything this scanner does with the
-        // vector -- `frames` is a plain local `std::vector`, standard
-        // `push_back` on a POD, nothing more exotic. Suppressed at exactly
-        // these two call sites (not project-wide, not for the warning class
-        // in general -- `-Wstringop-overflow` stays fully enabled and gating
-        // for every other line in this codebase) with a paired push/pop so
-        // the scope is unambiguous. Not reachable on Clang, which has no
-        // `-Wstringop-overflow` diagnostic to begin with.
+    // GCC 13 at -O3 has a confirmed false positive on these two
+    // `push_back` calls: `-Werror=stringop-overflow` on
+    // `vector<WalkFrame>::_M_realloc_insert`/`construct_at`'s inlined
+    // placement-new, reported as "writing 1 byte into a region of size 0"
+    // at a nonsensical NEGATIVE offset into an object GCC itself computed
+    // as ~2^63 bytes -- internally self-contradictory, and independent of
+    // both initial capacity (tried `frames.reserve(...)` first: no effect)
+    // and caller-side inlining depth (tried extracting this whole function
+    // with `noinline`, above: reduced the backtrace to a single inlining
+    // chain but did not remove the warning). `WalkFrame` is a 2-byte
+    // `{char; enum class : uint8_t;}` aggregate; this specific
+    // size/layout combination through `vector::push_back` under `-O3`
+    // matches publicly reported GCC 12/13 `-Wstringop-overflow`
+    // false-positive reports (e.g. GCC PR 106252-class reallocation
+    // mis-analysis) rather than anything this scanner does with the
+    // vector -- `frames` is a plain local `std::vector`, standard
+    // `push_back` on a POD, nothing more exotic. Suppressed at exactly
+    // these two call sites (not project-wide, not for the warning class
+    // in general -- `-Wstringop-overflow` stays fully enabled and gating
+    // for every other line in this codebase) with a paired push/pop so
+    // the scope is unambiguous. Not reachable on Clang, which has no
+    // `-Wstringop-overflow` diagnostic to begin with.
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wstringop-overflow"
@@ -828,6 +847,50 @@ inline std::optional<ValueSpan> find_value(std::string_view doc, const std::vect
     return ValueSpan{pos, *ve, doc[pos] == '"'};
 }
 
+/// Scoped variant of `find_value`: resolves `relative_path` starting from
+/// `container` (a `ValueSpan` previously returned by `find_value`/
+/// `find_value_in` against this same `doc`) instead of the document root.
+/// Implemented by delegating to `find_value` over
+/// `doc.substr(container.start, container.end - container.start)` --
+/// itself O(1), since `string_view::substr` only adjusts a pointer/length
+/// pair, never copies -- and re-adding `container.start` onto BOTH fields
+/// of whatever span that returns before handing it back, so the result
+/// stays expressed in `doc`'s own (not the substring's) byte offsets,
+/// exactly like every other `ValueSpan` this file produces. This is the
+/// offset-readd contract every caller of this function relies on: a
+/// `find_value_in` result is always directly comparable/splice-able
+/// against the ORIGINAL `doc`, never against the intermediate substring.
+///
+/// Exists to keep a caller that walks an array/object of many siblings
+/// (e.g. one `ContentField` per element of a `messages`/`choices` array)
+/// OUT of `find_value`'s O(document size) per-lookup cost: resolve the
+/// containing array/object's span ONCE via `find_value`, then resolve each
+/// sibling and its nested fields via `find_value_in` scoped to that span
+/// (or to a previously-`find_value_in`-resolved sibling's own span, for
+/// fields nested more than one level below the container) -- each lookup
+/// then costs O(that element's size), and the elements' sizes sum to at
+/// most `doc`'s size, so a whole array walk is O(document size) instead of
+/// O(element count * document size). `Guard::Extract::ChatCompletions`
+/// (Task 2.2) is the first caller that needed this, after an unscoped,
+/// find-value-from-root-per-field implementation measured quadratic on
+/// large request bodies.
+///
+/// An out-of-bounds `container` (shouldn't happen for a span this file
+/// itself produced, but checked anyway per this file's "never throws on
+/// lookup" convention) yields `std::nullopt`, same as a missing key/index.
+inline std::optional<ValueSpan> find_value_in(std::string_view doc,
+                                              const ValueSpan& container,
+                                              const std::vector<PathSeg>& relative_path) {
+    if (container.start > container.end || container.end > doc.size())
+        return std::nullopt;
+
+    const std::string_view sub = doc.substr(container.start, container.end - container.start);
+    const auto found = find_value(sub, relative_path);
+    if (!found)
+        return std::nullopt;
+    return ValueSpan{found->start + container.start, found->end + container.start, found->is_string};
+}
+
 /// Replaces `[span.start, span.end)` in `doc` with `replacement` (already
 /// JSON-encoded by the caller, e.g. via `encode_string`). Every byte
 /// outside the span is copied through unchanged. Throws
@@ -1038,6 +1101,35 @@ inline std::vector<StringLeaf> string_leaves(std::string_view doc, const std::ve
     }
 
     return result;
+}
+
+/// Scoped variant of `string_leaves`: walks `relative_root` starting from
+/// `container` (a `ValueSpan` previously returned by `find_value`/
+/// `find_value_in` against this same `doc`) instead of the document root.
+/// Same offset-readd contract as `find_value_in` (see its doc comment):
+/// implemented by delegating to `string_leaves` over
+/// `doc.substr(container.start, container.end - container.start)`, then
+/// adding `container.start` onto every returned leaf's `span.start`/
+/// `span.end` so each leaf's span is expressed in `doc`'s own byte offsets.
+/// `relative_root` is walked relative to `container`, exactly as
+/// `find_value_in`'s `relative_path` is -- an empty `relative_root` walks
+/// every string leaf under `container` itself. Exists for the same reason
+/// `find_value_in` does (see its doc comment): a caller that already holds
+/// an element's span (e.g. one array element out of many) can walk its
+/// string leaves in O(that element's size) instead of O(document size).
+inline std::vector<StringLeaf> string_leaves_in(std::string_view doc,
+                                                const ValueSpan& container,
+                                                const std::vector<PathSeg>& relative_root) {
+    if (container.start > container.end || container.end > doc.size())
+        return {};
+
+    const std::string_view sub = doc.substr(container.start, container.end - container.start);
+    std::vector<StringLeaf> leaves = string_leaves(sub, relative_root);
+    for (StringLeaf& leaf : leaves) {
+        leaf.span.start += container.start;
+        leaf.span.end += container.start;
+    }
+    return leaves;
 }
 
 }  // namespace Guard::Json
