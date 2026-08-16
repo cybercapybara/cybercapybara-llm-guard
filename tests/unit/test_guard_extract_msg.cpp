@@ -154,7 +154,7 @@ TEST(MessagesRequest, ToolUseInputStringLeavesNestedEscapedNonStringSkipped) {
     const std::string body =
         R"({"messages":[{"role":"user","content":[)"
         R"({"type":"tool_use","id":"t1","name":"f","input":)"
-        R"({"note":"say \"hi\"","nested":{"path":"C:\\tmp\\key"},"list":["x",7],"count":42,"ok":true}})"
+        R"({"note":"say \"hi\"","nested":{"path":"C:\\tmp\\key"},"list":["x",7],"count":42,"ok":true,"blank":""}})"
         R"(]}]})";
     const auto fields = unwrap(Guard::Extract::Messages::extract_request(body));
 
@@ -181,6 +181,64 @@ TEST(MessagesRequest, ToolUseInputStringLeavesNestedEscapedNonStringSkipped) {
     EXPECT_EQ(find_field(fields, with({key("ok")})), nullptr) << "bool leaf must not be extracted";
     EXPECT_EQ(find_field(fields, with({key("list"), idx(1)})), nullptr)
         << "non-string array element must not be extracted";
+    EXPECT_EQ(find_field(fields, with({key("blank")})), nullptr)
+        << "empty-string leaf must be filtered (extract.go:99's collectJSONStringLeaves guard, "
+           "replicated in Messages.hpp since Json::string_leaves_in deliberately does not filter)";
+}
+
+TEST(MessagesRequest, ToolUseInputPlainStringIsOneLeafAtInputPath) {
+    // Go's collectJSONStringLeaves recurses generically over ANY JSON
+    // value, not just objects (extract.go:87-103's switch has no
+    // "must be an object" precondition): when `input` itself is a plain
+    // string rather than the usual object, the string IS the one leaf,
+    // addressed at `.input` itself with no further path segment --
+    // extract.go:99's `case v.Type == gjson.String && v.String() != ""`
+    // matches `input` directly on the recursive call where `v == input`.
+    const std::string body = R"({"messages":[{"role":"user","content":[)"
+                             R"({"type":"tool_use","id":"t1","name":"f","input":"just a string"})"
+                             R"(]}]})";
+    const auto fields = unwrap(Guard::Extract::Messages::extract_request(body));
+
+    ASSERT_EQ(fields.size(), 1u);
+    EXPECT_TRUE(path_eq(fields[0].path, {key("messages"), idx(0), key("content"), idx(0), key("input")}));
+    EXPECT_EQ(fields[0].text, "just a string");
+    EXPECT_FALSE(fields[0].is_raw_object) << "request-side tool_use input is always a string leaf, never raw";
+}
+
+TEST(MessagesRequest, ToolUseInputTopLevelArrayLeafAtInputIndex) {
+    // Same generic-recursion behavior for a top-level array `input`: its
+    // one string element is a leaf addressed at `.input.0`.
+    const std::string body = R"({"messages":[{"role":"user","content":[)"
+                             R"({"type":"tool_use","id":"t1","name":"f","input":["secret"]})"
+                             R"(]}]})";
+    const auto fields = unwrap(Guard::Extract::Messages::extract_request(body));
+
+    ASSERT_EQ(fields.size(), 1u);
+    EXPECT_TRUE(path_eq(fields[0].path, {key("messages"), idx(0), key("content"), idx(0), key("input"), idx(0)}));
+    EXPECT_EQ(fields[0].text, "secret");
+}
+
+TEST(MessagesRequest, ToolUseNestedLeafSpanResolvesAgainstOriginalBytes) {
+    // Pins `string_leaves_in`'s offset-readdition: a leaf found via a
+    // SCOPED sub-walk (`find_value_in` resolves `input`'s own span, then
+    // `string_leaves_in` walks THAT span) must still report a span
+    // expressed in the ORIGINAL body's byte offsets, not the intermediate
+    // substring's own 0-based offsets -- a regression here would still pass
+    // every text-content assertion (the decoded text is unaffected) while
+    // silently breaking every consumer that patches the body back via the
+    // span (the whole point of `ContentField::span`).
+    const std::string body = R"({"messages":[{"role":"user","content":[)"
+                             R"({"type":"tool_use","id":"t1","name":"f",)"
+                             R"("input":{"outer":{"inner":"deep secret"}}})"
+                             R"(]}]})";
+    const auto fields = unwrap(Guard::Extract::Messages::extract_request(body));
+
+    const auto* leaf =
+        find_field(fields, {key("messages"), idx(0), key("content"), idx(0), key("input"), key("outer"), key("inner")});
+    ASSERT_NE(leaf, nullptr);
+    EXPECT_EQ(leaf->text, "deep secret");
+    EXPECT_EQ(span_text(body, leaf->span), R"("deep secret")")
+        << "leaf span must resolve against the ORIGINAL body bytes, not a scoped substring's own offsets";
 }
 
 TEST(MessagesRequest, ToolUseInputKeysWithPathMetacharactersNeedNoEscaping) {
@@ -306,6 +364,31 @@ TEST(MessagesResponse, ToolUseEmptyObjectInputIsSkipped) {
     const std::string body = R"({"content":[{"type":"tool_use","id":"t1","name":"f","input":{}}]})";
     const auto fields = unwrap(Guard::Extract::Messages::extract_response(body));
     EXPECT_TRUE(fields.empty());
+}
+
+TEST(MessagesResponse, ToolUseArrayInputIsSkipped) {
+    // extract_response.go's guard is `v.IsObject() && ...`: a non-object
+    // `input` (an array here) fails that gate and is skipped, both in Go
+    // and in this port's `body[input_span->start] == '{'` check.
+    const std::string body = R"({"content":[{"type":"tool_use","id":"t1","name":"f","input":["a","b"]}]})";
+    const auto fields = unwrap(Guard::Extract::Messages::extract_response(body));
+    EXPECT_TRUE(fields.empty());
+}
+
+TEST(MessagesResponse, ToolUseWhitespaceObjectInputIsExtracted) {
+    // Go's empty-input guard is a byte-EXACT `v.Raw != "{}"` string
+    // comparison, not a semantic "is this object empty" check: `"{ }"`
+    // (with an internal space) is a different 3-byte string than the
+    // literal 2-byte `"{}"`, so it passes the guard and IS extracted, even
+    // though it is semantically still an empty object. This pins that
+    // quirk-faithful port rather than a "smarter" semantic-emptiness check
+    // neither Go nor this port actually performs.
+    const std::string body = R"({"content":[{"type":"tool_use","id":"t1","name":"f","input":{ }}]})";
+    const auto fields = unwrap(Guard::Extract::Messages::extract_response(body));
+
+    ASSERT_EQ(fields.size(), 1u);
+    EXPECT_TRUE(fields[0].is_raw_object);
+    EXPECT_EQ(fields[0].text, "{ }");
 }
 
 TEST(MessagesResponse, RedactedThinkingBlockIsSkipped) {
