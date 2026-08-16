@@ -11,25 +11,13 @@
  *          parallel worktrees without colliding on this file (a controller
  *          ruling for Task 2.1, made to remove a three-writer collision
  *          otherwise created by all three extractor tasks needing to add
- *          cases to the same `switch`). Tasks 2.2 (`ChatCompletions`) and
- *          2.4 (`Responses`) have landed and are wired in below via REAL
- *          `#include`s of `ChatCompletions.hpp`/`Responses.hpp` (an earlier
- *          revision of this file instead forward-declared each format's
- *          functions to dodge a circular include -- that was ill-formed:
- *          see `Types.hpp`'s file-level doc comment for why, and why
- *          `ContentField`/`Unsupported`/`ExtractResult` now live there
- *          instead of here). `Messages` remains a DISPATCH STUB returning
- *          `Unsupported{}` until Task 2.3 lands, at which point it should
- *          `#include` its own header the same way `ChatCompletions.hpp`/
- *          `Responses.hpp` are included below. Returning `Unsupported{}`
- *          for a not-yet-implemented format is not a behavior regression in
- *          the interim: `ExtractResult`'s `Unsupported` sentinel is exactly
- *          the fail-open-plus-counter signal callers already must handle
- *          for a genuinely unsupported body schema (spec §5), so a caller
- *          built against this stub sees the same "nothing to mask, but
- *          don't fail closed" behavior it would see for real unsupported
- *          input -- just for every `Messages` input, until 2.3 replaces its
- *          stub with real logic.
+ *          cases to the same `switch`). All three have now landed and are
+ *          wired in below via REAL `#include`s of `ChatCompletions.hpp`/
+ *          `Messages.hpp`/`Responses.hpp` (an earlier revision of each
+ *          instead forward-declared its functions to dodge a circular
+ *          include -- that was ill-formed: see `Types.hpp`'s file-level doc
+ *          comment for why, and why `ContentField`/`Unsupported`/
+ *          `ExtractResult` now live there instead of here).
  *
  *          `wants_stream` reads the Go reference's `internal/controller/
  *          gateway/gateway.go`: `gjson.GetBytes(body, "stream").Bool()`,
@@ -62,25 +50,24 @@
 
 #include "guard/ApiFormat.hpp"
 #include "guard/extract/ChatCompletions.hpp"
+#include "guard/extract/Messages.hpp"
 #include "guard/extract/Responses.hpp"
 #include "guard/extract/Types.hpp"
 #include "guard/json/Json.hpp"
 
 namespace Guard::Extract {
 
-/// Dispatches to the per-format extractor. `ChatCompletions` is wired to
-/// `ChatCompletions::extract_request` (Task 2.2); `Responses` is wired to
-/// `Responses::extract_request` (Task 2.4); `Messages` remains an
-/// `Unsupported{}` stub until Task 2.3 lands -- see the file-level doc
-/// comment.
+/// Dispatches to the per-format extractor: `ChatCompletions` (Task 2.2),
+/// `Messages` (Task 2.3), and `Responses` (Task 2.4) are all wired to their
+/// real `extract_request` -- see the file-level doc comment.
 inline ExtractResult extract_request(std::string_view body, Guard::ApiFormat format) {
     switch (format) {
         case Guard::ApiFormat::ChatCompletions:
             return ChatCompletions::extract_request(body);
+        case Guard::ApiFormat::Messages:
+            return Messages::extract_request(body);
         case Guard::ApiFormat::Responses:
             return Responses::extract_request(body);
-        case Guard::ApiFormat::Messages:
-            break;
     }
     return Unsupported{};
 }
@@ -94,10 +81,10 @@ inline ExtractResult extract_response(std::string_view body, Guard::ApiFormat fo
     switch (format) {
         case Guard::ApiFormat::ChatCompletions:
             return ChatCompletions::extract_response(body);
+        case Guard::ApiFormat::Messages:
+            return Messages::extract_response(body);
         case Guard::ApiFormat::Responses:
             return Responses::extract_response_output_fields(body, {});
-        case Guard::ApiFormat::Messages:
-            break;
     }
     return Unsupported{};
 }

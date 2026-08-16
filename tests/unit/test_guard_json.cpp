@@ -35,7 +35,6 @@
 
 #include <gtest/gtest.h>
 
-#include "guard/ApiFormat.hpp"
 #include "guard/extract/Extract.hpp"
 #include "guard/json/Json.hpp"
 
@@ -985,30 +984,11 @@ TEST(GuardExtract, WantsStreamLooseGjsonBoolCoercion) {
     EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":{}})"));
 }
 
-// ── Extract dispatch stub (Task 2.3 still lands; 2.2/2.4 already wired) ──
-//
-// Task 2.2 landed the real `ChatCompletions` body (`src/guard/extract/
-// ChatCompletions.hpp` + `tests/unit/test_guard_extract_cc.cpp`, which
-// covers its dispatch wiring in `GuardExtractChatCompletionsDispatch.*`);
-// Task 2.4 landed the real `Responses` body (`src/guard/extract/
-// Responses.hpp` + `tests/unit/test_guard_extract_resp.cpp`, dispatch
-// wiring covered by `GuardExtractRespDispatch.*`). These two tests narrow
-// to just `Messages`, the one format still stubbed; Task 2.3 is expected to
-// delete this block entirely once it lands its own dispatch coverage
-// (controller-sequenced, same pattern as the two narrowings above).
-
-TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryStubbedFormat) {
-    const std::string body = R"({"messages":[{"role":"user","content":"hi"}]})";
-    for (auto format : {Guard::ApiFormat::Messages}) {
-        const auto result = Guard::Extract::extract_request(body, format);
-        EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
-    }
-}
-
-TEST(GuardExtract, ExtractResponseStubReturnsUnsupportedForEveryStubbedFormat) {
-    const std::string body = R"({"choices":[{"message":{"content":"hi"}}]})";
-    for (auto format : {Guard::ApiFormat::Messages}) {
-        const auto result = Guard::Extract::extract_response(body, format);
-        EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
-    }
-}
+// Extract dispatch stubs: Task 2.2 (chat_completions, `test_guard_extract_cc.cpp`'s
+// `GuardExtractChatCompletionsDispatch.*`), Task 2.3 (messages,
+// `test_guard_extract_msg.cpp`'s `MessagesDispatch.*`), and Task 2.4
+// (responses, `test_guard_extract_resp.cpp`'s `GuardExtractRespDispatch.*`)
+// have all landed real per-format dispatch coverage in their own test
+// files, narrowing what these two tests had left to check down to nothing
+// -- so the two `*StubReturnsUnsupportedForEveryStubbedFormat` tests that
+// used to live here were deleted rather than narrowed further.
