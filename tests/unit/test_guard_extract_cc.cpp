@@ -684,10 +684,16 @@ TEST(GuardExtractChatCompletionsDispatch, ResponseRoutesToChatCompletions) {
     EXPECT_EQ(got[0].text, "hi");
 }
 
-TEST(GuardExtractChatCompletionsDispatch, OtherFormatsStillUnsupportedStubs) {
-    const std::string body = R"({"messages":[{"role":"user","content":"hi"}]})";
-    EXPECT_TRUE(is_unsupported(Guard::Extract::extract_request(body, Guard::ApiFormat::Messages)));
-    EXPECT_TRUE(is_unsupported(Guard::Extract::extract_request(body, Guard::ApiFormat::Responses)));
-    EXPECT_TRUE(is_unsupported(Guard::Extract::extract_response(body, Guard::ApiFormat::Messages)));
-    EXPECT_TRUE(is_unsupported(Guard::Extract::extract_response(body, Guard::ApiFormat::Responses)));
-}
+// `OtherFormatsStillUnsupportedStubs` used to live here, asserting that a
+// chat_completions-shaped body through the OTHER two formats' dispatch
+// still hit the interim `Unsupported{}` stub. All three formats now have
+// real dispatch (Messages: Task 2.3, `test_guard_extract_msg.cpp`'s
+// `MessagesDispatch.*`; Responses: Task 2.4, `test_guard_extract_resp.cpp`'s
+// `GuardExtractRespDispatch.*`) -- there is no "still a stub" left to pin.
+// The one assertion that stayed true under real dispatch (a
+// chat_completions-shaped body has neither "input" nor "instructions", so
+// `extract_request(body, Responses)` is genuinely `Unsupported`) is exactly
+// `GuardExtractRespDispatch.RequestUnsupportedPassesThrough`'s own
+// assertion, byte-for-byte the same body -- so nothing was carried forward
+// here rather than duplicating that coverage under a now-misleading test
+// name.

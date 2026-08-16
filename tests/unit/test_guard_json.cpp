@@ -985,10 +985,10 @@ TEST(GuardExtract, WantsStreamLooseGjsonBoolCoercion) {
 }
 
 // Extract dispatch stubs: Task 2.2 (chat_completions, `test_guard_extract_cc.cpp`'s
-// `GuardExtractChatCompletionsDispatch.*`) and Task 2.3 (messages,
-// `test_guard_extract_msg.cpp`'s `MessagesDispatch.*`) have both landed real
-// per-format dispatch coverage in their own test files, narrowing what these
-// two tests had left to check down to nothing (only `Responses` remained
-// stubbed, and Task 2.4 owns that coverage in its own test file the same
-// way) -- so the two `*StubReturnsUnsupportedForEveryStubbedFormat` tests
-// that used to live here were deleted rather than narrowed further.
+// `GuardExtractChatCompletionsDispatch.*`), Task 2.3 (messages,
+// `test_guard_extract_msg.cpp`'s `MessagesDispatch.*`), and Task 2.4
+// (responses, `test_guard_extract_resp.cpp`'s `GuardExtractRespDispatch.*`)
+// have all landed real per-format dispatch coverage in their own test
+// files, narrowing what these two tests had left to check down to nothing
+// -- so the two `*StubReturnsUnsupportedForEveryStubbedFormat` tests that
+// used to live here were deleted rather than narrowed further.

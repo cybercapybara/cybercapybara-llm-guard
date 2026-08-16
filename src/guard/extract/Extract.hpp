@@ -11,25 +11,13 @@
  *          parallel worktrees without colliding on this file (a controller
  *          ruling for Task 2.1, made to remove a three-writer collision
  *          otherwise created by all three extractor tasks needing to add
- *          cases to the same `switch`). Task 2.2 (chat_completions) and Task
- *          2.3 (messages) have landed and are wired in below via REAL
- *          `#include`s of `ChatCompletions.hpp`/`Messages.hpp` (an earlier
- *          revision of each instead forward-declared its functions to dodge
- *          a circular include -- that was ill-formed: see `Types.hpp`'s
- *          file-level doc comment for why, and why `ContentField`/
- *          `Unsupported`/`ExtractResult` now live there instead of here).
- *          `Responses` remains a DISPATCH STUB returning `Unsupported{}`
- *          until Task 2.4 lands, at which point it should `#include` its
- *          own header the same way `ChatCompletions.hpp`/`Messages.hpp` are
- *          included below. Returning `Unsupported{}` for a not-yet-
- *          implemented format is not a behavior regression in the interim:
- *          `ExtractResult`'s `Unsupported` sentinel is exactly the
- *          fail-open-plus-counter signal callers already must handle for a
- *          genuinely unsupported body schema (spec §5), so a caller built
- *          against this stub sees the same "nothing to mask, but don't fail
- *          closed" behavior it would see for real unsupported input -- just
- *          for every Responses-format input, until 2.4 replaces the stub
- *          with real logic.
+ *          cases to the same `switch`). All three have now landed and are
+ *          wired in below via REAL `#include`s of `ChatCompletions.hpp`/
+ *          `Messages.hpp`/`Responses.hpp` (an earlier revision of each
+ *          instead forward-declared its functions to dodge a circular
+ *          include -- that was ill-formed: see `Types.hpp`'s file-level doc
+ *          comment for why, and why `ContentField`/`Unsupported`/
+ *          `ExtractResult` now live there instead of here).
  *
  *          `wants_stream` reads the Go reference's `internal/controller/
  *          gateway/gateway.go`: `gjson.GetBytes(body, "stream").Bool()`,
@@ -63,16 +51,15 @@
 #include "guard/ApiFormat.hpp"
 #include "guard/extract/ChatCompletions.hpp"
 #include "guard/extract/Messages.hpp"
+#include "guard/extract/Responses.hpp"
 #include "guard/extract/Types.hpp"
 #include "guard/json/Json.hpp"
 
 namespace Guard::Extract {
 
-/// Dispatches to the per-format extractor. `ChatCompletions` is wired to
-/// `ChatCompletions::extract_request` (Task 2.2), `Messages` to
-/// `Messages::extract_request` (Task 2.3); `Responses` remains an
-/// `Unsupported{}` stub until Task 2.4 lands -- see the file-level doc
-/// comment.
+/// Dispatches to the per-format extractor: `ChatCompletions` (Task 2.2),
+/// `Messages` (Task 2.3), and `Responses` (Task 2.4) are all wired to their
+/// real `extract_request` -- see the file-level doc comment.
 inline ExtractResult extract_request(std::string_view body, Guard::ApiFormat format) {
     switch (format) {
         case Guard::ApiFormat::ChatCompletions:
@@ -80,13 +67,16 @@ inline ExtractResult extract_request(std::string_view body, Guard::ApiFormat for
         case Guard::ApiFormat::Messages:
             return Messages::extract_request(body);
         case Guard::ApiFormat::Responses:
-            break;
+            return Responses::extract_request(body);
     }
     return Unsupported{};
 }
 
 /// Dispatches to the per-format extractor -- see `extract_request`'s doc
-/// comment.
+/// comment. `Responses::extract_response_output_fields` is called with an
+/// empty `base` path: a bare top-level response object, not one embedded in
+/// an SSE `response.completed` event (that call, with a non-empty `base`,
+/// is the SSE phase's own responsibility, not this generic dispatcher's).
 inline ExtractResult extract_response(std::string_view body, Guard::ApiFormat format) {
     switch (format) {
         case Guard::ApiFormat::ChatCompletions:
@@ -94,7 +84,7 @@ inline ExtractResult extract_response(std::string_view body, Guard::ApiFormat fo
         case Guard::ApiFormat::Messages:
             return Messages::extract_response(body);
         case Guard::ApiFormat::Responses:
-            break;
+            return Responses::extract_response_output_fields(body, {});
     }
     return Unsupported{};
 }
