@@ -985,16 +985,21 @@ TEST(GuardExtract, WantsStreamLooseGjsonBoolCoercion) {
     EXPECT_FALSE(Guard::Extract::wants_stream(R"({"stream":{}})"));
 }
 
-// ── Extract dispatch stubs (Tasks 2.3-2.4 land the remaining real bodies) ─
+// ── Extract dispatch stub (Task 2.3 still lands; 2.2/2.4 already wired) ──
 //
 // Task 2.2 landed the real `ChatCompletions` body (`src/guard/extract/
 // ChatCompletions.hpp` + `tests/unit/test_guard_extract_cc.cpp`, which
 // covers its dispatch wiring in `GuardExtractChatCompletionsDispatch.*`);
-// these two tests narrow to just the formats still stubbed.
+// Task 2.4 landed the real `Responses` body (`src/guard/extract/
+// Responses.hpp` + `tests/unit/test_guard_extract_resp.cpp`, dispatch
+// wiring covered by `GuardExtractRespDispatch.*`). These two tests narrow
+// to just `Messages`, the one format still stubbed; Task 2.3 is expected to
+// delete this block entirely once it lands its own dispatch coverage
+// (controller-sequenced, same pattern as the two narrowings above).
 
 TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryStubbedFormat) {
     const std::string body = R"({"messages":[{"role":"user","content":"hi"}]})";
-    for (auto format : {Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
+    for (auto format : {Guard::ApiFormat::Messages}) {
         const auto result = Guard::Extract::extract_request(body, format);
         EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
     }
@@ -1002,7 +1007,7 @@ TEST(GuardExtract, ExtractRequestStubReturnsUnsupportedForEveryStubbedFormat) {
 
 TEST(GuardExtract, ExtractResponseStubReturnsUnsupportedForEveryStubbedFormat) {
     const std::string body = R"({"choices":[{"message":{"content":"hi"}}]})";
-    for (auto format : {Guard::ApiFormat::Messages, Guard::ApiFormat::Responses}) {
+    for (auto format : {Guard::ApiFormat::Messages}) {
         const auto result = Guard::Extract::extract_response(body, format);
         EXPECT_TRUE(std::holds_alternative<Guard::Extract::Unsupported>(result));
     }
