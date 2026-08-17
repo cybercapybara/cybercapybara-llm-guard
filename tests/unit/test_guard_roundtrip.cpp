@@ -316,6 +316,31 @@ std::string decode_reversed_b64(std::string reversed_b64url) {
     return Utils::Base64::url_decode(reversed_b64url);
 }
 
+// Replaces every occurrence of `marker` in `text` with `value` -- used to
+// stamp a fixture template with a runtime-computed value (a decoded secret,
+// a minted placeholder) without embedding it as a literal in the source.
+void replace_all_occurrences(std::string& text, std::string_view marker, std::string_view value) {
+    std::size_t pos = 0;
+    while ((pos = text.find(marker, pos)) != std::string::npos) {
+        text.replace(pos, marker.size(), value);
+        pos += value.size();
+    }
+}
+
+// The placeholder `state.replacements` minted for `original` -- used to
+// stamp a SEPARATE (response) fixture with the exact placeholder a request's
+// masking phase produced, without hardcoding a specific counter value (which
+// numeric suffix a given original gets can shift with unrelated replacements
+// earlier in the same request).
+std::string placeholder_for(const Guard::MaskingState& state, const std::string& original) {
+    for (const auto& rep : state.replacements) {
+        if (rep.original == original)
+            return rep.placeholder;
+    }
+    ADD_FAILURE() << "no replacement minted for \"" << original << "\"";
+    return {};
+}
+
 }  // namespace
 
 // ── Catalog sanity ──────────────────────────────────────────────────────
@@ -435,6 +460,13 @@ TEST(GuardRoundTrip, MessagesRequestWithNoDetectablePiiIsLeftUntouched) {
 
 // ── Messages response: the ONE place is_raw_object == true is produced ─────
 
+// NOTE: this test masks AND demasks the SAME response body -- a synthetic
+// inversion exercise to pin `is_raw_object` splicing/patching in isolation,
+// not the production flow. Production never masks a response at all: the
+// Go gateway masks the REQUEST once (gateway.go) and the response is only
+// ever DEMASKED, using that SAME request's MaskingState (response.go) --
+// `MessagesResponseEchoesRequestPlaceholdersAndDemasksByteExactly` below is
+// the real two-transaction shape.
 TEST(GuardRoundTrip, MessagesResponseRawToolUseInputMasksAndDemasksByteIdentically) {
     const std::string body = R"({
         "id": "msg_1",
@@ -475,6 +507,76 @@ TEST(GuardRoundTrip, MessagesResponseRawToolUseInputMasksAndDemasksByteIdentical
             << "raw-object field's span must still open a JSON object, not a string literal";
     }
     EXPECT_TRUE(saw_masked_raw_object) << "masked body must still expose a raw-object tool_use.input field";
+}
+
+// The REAL two-transaction production shape (gateway.go + response.go, read
+// directly, not guessed): masking happens ONCE, on the REQUEST; the
+// response is a wholly SEPARATE body that is only ever DEMASKED, using that
+// SAME request's `MaskingState` -- never re-masked itself. This is the case
+// `MessagesResponseRawToolUseInputMasksAndDemasksByteIdentically` above
+// deliberately does NOT cover (it masks and demasks the SAME response body,
+// a synthetic inversion exercise for `is_raw_object` splicing in isolation).
+TEST(GuardRoundTrip, MessagesResponseEchoesRequestPlaceholdersAndDemasksByteExactly) {
+    const std::string email = "dana.example@example.org";
+    const std::string inn = "7707083893";
+
+    // (a) A REQUEST containing PII (an email, and a Cyrillic-context INN)
+    // that also sets up a tool-lookup narrative ("via the search tool") --
+    // masked once, exactly as the gateway masks every request.
+    const std::string request_body = R"({
+        "model": "claude-3-5-sonnet",
+        "messages": [
+            {"role": "user", "content": "Здравствуйте! Мой email dana.example@example.org, ИНН организации: 7707083893. Пожалуйста, найдите заказ через инструмент поиска."}
+        ]
+    })";
+
+    const CatalogFixture& cat = full_catalog();
+    const MaskedBody masked_request = mask_body(request_body, ApiFormat::Messages, false, cat.rules);
+    ASSERT_FALSE(masked_request.state.replacements.empty());
+
+    const std::string email_placeholder = placeholder_for(masked_request.state, email);
+    const std::string inn_placeholder = placeholder_for(masked_request.state, inn);
+    ASSERT_FALSE(email_placeholder.empty());
+    ASSERT_FALSE(inn_placeholder.empty());
+
+    // (b) A SEPARATE response body: the model "echoes" those SAME minted
+    // placeholders back -- once in a plain text block, once inside a raw
+    // tool_use.input object (`query`/`note`) -- exactly as an upstream LLM
+    // that saw the masked request in its context window might.
+    std::string response_body = R"({
+        "id": "msg_lookup",
+        "model": "claude-3-5-sonnet",
+        "role": "assistant",
+        "content": [
+            {"type": "text", "text": "Нашёл контакт EMAIL_MARKER, уточняю через инструмент."},
+            {"type": "tool_use", "id": "toolu_lookup", "name": "lookup_order", "input": {"query": "EMAIL_MARKER", "note": "INN_MARKER"}}
+        ]
+    })";
+    std::string expected_body = response_body;
+    replace_all_occurrences(response_body, "EMAIL_MARKER", email_placeholder);
+    replace_all_occurrences(response_body, "INN_MARKER", inn_placeholder);
+    replace_all_occurrences(expected_body, "EMAIL_MARKER", email);
+    replace_all_occurrences(expected_body, "INN_MARKER", inn);
+    ASSERT_TRUE(Guard::Json::valid(response_body));
+    ASSERT_TRUE(Guard::Json::valid(expected_body));
+
+    // (c) Demask via a Config built from the REQUEST's own MaskingState --
+    // the response is never itself passed through mask_texts/mask_body.
+    const Config cfg = Guard::Demask::make_config(masked_request.state, cat.registry);
+
+    // (d) The text field goes through demask_all, the raw tool_use.input
+    // object through demask_json_arguments (is_raw_object routing, exercised
+    // here on a body the SAME Config -- not the response's own -- demasks);
+    // both originals must come back byte-exactly and the whole body must
+    // stay valid JSON.
+    const std::string demasked_one_shot = demask_body(response_body, ApiFormat::Messages, true, cfg, 0);
+    EXPECT_TRUE(Guard::Json::valid(demasked_one_shot));
+    EXPECT_EQ(demasked_one_shot, expected_body);
+
+    for (std::size_t chunk_size = 1; chunk_size <= 32; ++chunk_size) {
+        EXPECT_EQ(demask_body(response_body, ApiFormat::Messages, true, cfg, chunk_size), expected_body)
+            << "chunk size " << chunk_size;
+    }
 }
 
 // ── Responses request: instructions, message content, function_call ────────
