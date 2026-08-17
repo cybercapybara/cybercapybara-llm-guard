@@ -458,9 +458,23 @@ TEST(GuardRoundTrip, MessagesResponseRawToolUseInputMasksAndDemasksByteIdentical
     const MaskedBody masked = mask_body(body, ApiFormat::Messages, true, full_catalog().rules);
     EXPECT_NE(masked.body.find("<EMAIL_"), std::string::npos);
     EXPECT_NE(masked.body.find("<CREDIT_CARD_"), std::string::npos);
-    // The raw object must still be syntactically valid JSON after masking,
-    // spliced in RAW (no quotes/encoding added around it).
-    EXPECT_NE(masked.body.find("\"input\":{"), std::string::npos);
+    // The raw object must still be an actual JSON OBJECT after masking, not
+    // have been collapsed into a quoted string -- checked structurally (via
+    // a fresh extraction against the MASKED body, not a brittle substring
+    // match against this fixture's own "input": vs "input":{ spacing choice)
+    // so it can't be fooled by incidental whitespace.
+    const std::vector<ContentField> masked_fields = extract_fields(masked.body, ApiFormat::Messages, true);
+    bool saw_masked_raw_object = false;
+    for (const auto& f : masked_fields) {
+        if (!f.is_raw_object)
+            continue;
+        saw_masked_raw_object = true;
+        ASSERT_FALSE(f.span.is_string) << "raw-object field must not have become a JSON string";
+        ASSERT_LT(f.span.start, masked.body.size());
+        EXPECT_EQ(masked.body[f.span.start], '{')
+            << "raw-object field's span must still open a JSON object, not a string literal";
+    }
+    EXPECT_TRUE(saw_masked_raw_object) << "masked body must still expose a raw-object tool_use.input field";
 }
 
 // ── Responses request: instructions, message content, function_call ────────
