@@ -142,3 +142,4 @@ bench-out/
 
 # SDD workspace scratch (superpowers skill state) — never source-of-truth.
 .superpowers/
+.claude/
