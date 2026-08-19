@@ -187,10 +187,16 @@ TEST(GuardSseSplitFrames, SeparatorSplitExactlyAcrossTwoChunks) {
 }
 
 TEST(GuardSseSplitFrames, CrlfSeparatorSplitAcrossMultipleChunks) {
-    // "\r\n\r\n" split after each byte in turn.
+    // "\r\n\r\n" split after each byte in turn. `first_chunk` is a NAMED local
+    // (not a temporary passed directly to split_frames): FrameSplit's
+    // `frames`/`tail` are string_views into whatever buffer was passed in, so
+    // they must not outlive that buffer -- binding the substring to a
+    // variable that spans the rest of the loop body keeps them valid for as
+    // long as this iteration reads them.
     const std::string whole = "data: a\r\n\r\ndata: b\r\n\r\n";
     for (std::size_t split_at = 1; split_at < whole.size(); ++split_at) {
-        FrameSplit first = split_frames(whole.substr(0, split_at));
+        const std::string first_chunk = whole.substr(0, split_at);
+        FrameSplit first = split_frames(first_chunk);
         std::vector<std::string> frames = as_strings(first.frames);
         const std::string combined = std::string(first.tail) + whole.substr(split_at);
         FrameSplit second = split_frames(combined);
@@ -218,8 +224,9 @@ TEST_P(GuardSseClassifyFrame, MatchesGoTestClassifyFrame) {
     const ClassifyCase& tc = GetParam();
     const ClassifiedFrame result = classify_frame(tc.frame);
     EXPECT_EQ(result.kind, tc.want_kind) << tc.name;
-    if (tc.want_kind == FrameKind::Event)
+    if (tc.want_kind == FrameKind::Event) {
         EXPECT_EQ(result.data, tc.want_payload) << tc.name;
+    }
     EXPECT_EQ(result.raw, tc.frame) << tc.name;
 }
 
@@ -242,7 +249,7 @@ INSTANTIATE_TEST_SUITE_P(
                      "event: x\ndata: line1\ndata: line2\n\n",
                      FrameKind::Event,
                      "line1\nline2"}),
-    [](const ::testing::TestParamInfo<ClassifyCase>& info) { return std::to_string(info.index); });
+    [](const ::testing::TestParamInfo<ClassifyCase>& param_info) { return std::to_string(param_info.index); });
 
 // Additional edge cases beyond the ported table, covering the file-level
 // notes on the len()>0 (not nil) gate and event:/id:/retry:/CRLF handling.
@@ -390,7 +397,7 @@ INSTANTIATE_TEST_SUITE_P(
                           "in-string brace does not close early", {R"({"note":"start)", "end } more", R"("})"}, 2},
                       JsonCloseCase{"escaped quote keeps string open", {"{\"k\":\"a\\", "\" }", "\"}"}, 2},
                       JsonCloseCase{"nested objects", {R"({"a":{"b":1})", R"(,"c":2})"}, 1}),
-    [](const ::testing::TestParamInfo<JsonCloseCase>& info) { return std::to_string(info.index); });
+    [](const ::testing::TestParamInfo<JsonCloseCase>& param_info) { return std::to_string(param_info.index); });
 
 TEST(GuardSseJsonCloseTrackerExtra, NoSpuriousCloseWithoutOpen) {
     JsonCloseTracker tracker;
